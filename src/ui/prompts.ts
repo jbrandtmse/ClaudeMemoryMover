@@ -119,6 +119,53 @@ export async function promptOriginalPath(opts: {
   return result.trim();
 }
 
+export interface ProjectPathResult {
+  action: 'accept' | 'override' | 'skip';
+  path: string;
+}
+
+export async function confirmProjectPath(opts: {
+  slug: string;
+  originalPath: string;
+  suggestion: string | null;
+  silent: boolean;
+}): Promise<ProjectPathResult> {
+  if (opts.silent) {
+    return { action: 'skip', path: opts.originalPath };
+  }
+
+  type Action = 'accept' | 'override' | 'skip';
+  const options: { value: Action; label: string; hint?: string }[] = [];
+  if (opts.suggestion !== null) {
+    options.push({
+      value: 'accept',
+      label: `Use ${opts.suggestion}`,
+      hint: 'auto-detected match',
+    });
+  }
+  options.push({ value: 'override', label: 'Enter custom path', hint: 'type a new path' });
+  options.push({ value: 'skip', label: 'Skip', hint: 'associate later with fix-paths' });
+
+  const action = await select<Action>({
+    message: `Project "${opts.slug}" not found at ${opts.originalPath}. Choose:`,
+    options,
+  });
+  bailOnCancel<Action>(action);
+
+  if (action === 'skip') return { action: 'skip', path: opts.originalPath };
+  if (action === 'accept' && opts.suggestion !== null) {
+    return { action: 'accept', path: opts.suggestion };
+  }
+
+  const customPath = await text({
+    message: `Enter path for project ${opts.slug}:`,
+    placeholder: opts.originalPath,
+    validate: (v) => (v === undefined || v.trim().length === 0 ? 'Path cannot be empty' : undefined),
+  });
+  bailOnCancel<string>(customPath);
+  return { action: 'override', path: customPath.trim() };
+}
+
 export async function confirmOverwrite(opts: SilentOpts<boolean>): Promise<boolean> {
   if (opts.silent) {
     return requireSilentValue(opts, FLAG_NAMES.force);

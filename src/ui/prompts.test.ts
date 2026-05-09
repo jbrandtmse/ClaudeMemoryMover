@@ -22,6 +22,7 @@ import {
   selectProjects,
   confirmCredentials,
   confirmOverwrite,
+  confirmProjectPath,
   createSpinner,
   promptOriginalPath,
 } from './prompts.js';
@@ -242,6 +243,98 @@ describe('promptOriginalPath', () => {
 
     await expect(
       promptOriginalPath({ slug: '-home-y', suggestedPath: '/home/y', silent: false }),
+    ).rejects.toThrow('exit');
+    expect(exitSpy).toHaveBeenCalledWith(130);
+    exitSpy.mockRestore();
+  });
+});
+
+describe('confirmProjectPath', () => {
+  it('returns { action: "skip" } in silent mode without calling clack', async () => {
+    const result = await confirmProjectPath({
+      slug: '-home-x-app',
+      originalPath: '/home/x/app',
+      suggestion: '/home/y/app',
+      silent: true,
+    });
+    expect(result).toEqual({ action: 'skip', path: '/home/x/app' });
+    expect(clack.select).not.toHaveBeenCalled();
+    expect(clack.text).not.toHaveBeenCalled();
+  });
+
+  it('interactive: select accept returns suggestion path when suggestion is not null', async () => {
+    vi.mocked(clack.select).mockResolvedValueOnce('accept');
+    const result = await confirmProjectPath({
+      slug: '-home-x-app',
+      originalPath: '/home/x/app',
+      suggestion: '/home/y/app',
+      silent: false,
+    });
+    expect(result).toEqual({ action: 'accept', path: '/home/y/app' });
+    const optsArg = vi.mocked(clack.select).mock.calls[0]?.[0] as
+      | { options: { value: string }[] }
+      | undefined;
+    const values = optsArg?.options.map((o) => o.value) ?? [];
+    expect(values).toContain('accept');
+    expect(values).toContain('override');
+    expect(values).toContain('skip');
+  });
+
+  it('interactive: when suggestion is null, accept option is omitted', async () => {
+    vi.mocked(clack.select).mockResolvedValueOnce('skip');
+    await confirmProjectPath({
+      slug: '-home-x-app',
+      originalPath: '/home/x/app',
+      suggestion: null,
+      silent: false,
+    });
+    const optsArg = vi.mocked(clack.select).mock.calls[0]?.[0] as
+      | { options: { value: string }[] }
+      | undefined;
+    const values = optsArg?.options.map((o) => o.value) ?? [];
+    expect(values).not.toContain('accept');
+    expect(values).toContain('override');
+    expect(values).toContain('skip');
+  });
+
+  it('interactive: override calls clack.text and returns trimmed path', async () => {
+    vi.mocked(clack.select).mockResolvedValueOnce('override');
+    vi.mocked(clack.text).mockResolvedValueOnce('  /home/new/path  ');
+    const result = await confirmProjectPath({
+      slug: '-home-x-app',
+      originalPath: '/home/x/app',
+      suggestion: null,
+      silent: false,
+    });
+    expect(result).toEqual({ action: 'override', path: '/home/new/path' });
+    expect(clack.text).toHaveBeenCalledTimes(1);
+  });
+
+  it('interactive: skip returns originalPath without calling clack.text', async () => {
+    vi.mocked(clack.select).mockResolvedValueOnce('skip');
+    const result = await confirmProjectPath({
+      slug: '-home-x-app',
+      originalPath: '/home/x/app',
+      suggestion: '/home/y/app',
+      silent: false,
+    });
+    expect(result).toEqual({ action: 'skip', path: '/home/x/app' });
+    expect(clack.text).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+C on select → cancel + exit(130)', async () => {
+    vi.mocked(clack.select).mockResolvedValueOnce(CANCEL_SYMBOL);
+    vi.mocked(clack.isCancel).mockReturnValueOnce(true);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+    await expect(
+      confirmProjectPath({
+        slug: '-home-x',
+        originalPath: '/home/x',
+        suggestion: null,
+        silent: false,
+      }),
     ).rejects.toThrow('exit');
     expect(exitSpy).toHaveBeenCalledWith(130);
     exitSpy.mockRestore();

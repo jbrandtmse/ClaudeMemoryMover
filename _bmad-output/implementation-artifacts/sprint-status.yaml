@@ -1,5 +1,5 @@
 # generated: 2026-05-09
-# last_updated: 2026-05-09
+# last_updated: 2026-05-09 (story 1-11 → review)
 # (story 1-3 moved ready-for-dev → in-progress → review on 2026-05-09)
 # (story 1-4 moved ready-for-dev → in-progress → review on 2026-05-09)
 # (story 1-5 moved ready-for-dev → in-progress → review on 2026-05-09)
@@ -8,6 +8,7 @@
 # (story 1-8 moved ready-for-dev → in-progress → review on 2026-05-09)
 # (story 1-9 moved ready-for-dev → in-progress → review → done on 2026-05-09)
 # (story 1-10 moved backlog → in-progress → review → done on 2026-05-09)
+# (story 1-11 moved ready-for-dev → in-progress → review on 2026-05-09)
 # project: ClaudeMemoryMover
 # project_key: NOKEY
 # tracking_system: file-system
@@ -62,7 +63,7 @@ development_status:
   1-8-ui-layer-output-formatter-prompts-wrapper-decision-schema: review
   1-9-cli-shell-cmemmov-entry-point-command-dispatch: done
   1-10-export-command: done
-  1-11-import-command-same-os-happy-path: backlog
+  1-11-import-command-same-os-happy-path: review
   1-12-rollback-command: backlog
   1-13-ci-matrix-3-os-test-pipeline: backlog
   epic-1-retrospective: optional

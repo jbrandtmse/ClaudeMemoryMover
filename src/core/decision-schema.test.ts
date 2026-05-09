@@ -75,12 +75,28 @@ describe('decision-schema', () => {
         bundlePath: '/tmp/bundle.cmemmov.json',
         categories: ['projectMemory'],
         mode: 'merge' as ImportMode,
+        overwriteCategories: [],
         dryRun: true,
         noIntegrityCheck: false,
         silent: false,
         json: true,
       } satisfies ImportDecision;
       expect(value.mode).toBe('merge');
+      expect(value.overwriteCategories).toEqual([]);
+    });
+
+    it('ImportDecision accepts overwriteCategories with category entries', () => {
+      const value = {
+        bundlePath: '/tmp/bundle.cmemmov.json',
+        categories: ['globalMemory', 'globalSettings'],
+        mode: 'merge' as ImportMode,
+        overwriteCategories: ['globalSettings'] as ClaudeCategory[],
+        dryRun: false,
+        noIntegrityCheck: false,
+        silent: true,
+        json: false,
+      } satisfies ImportDecision;
+      expect(value.overwriteCategories).toContain('globalSettings');
     });
 
     it('RollbackDecision accepts both backupPath defined and undefined', () => {

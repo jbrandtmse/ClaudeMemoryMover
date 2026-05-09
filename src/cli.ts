@@ -20,6 +20,11 @@ interface ExportCLIOpts extends GlobalCLIOpts {
   projectPath?: Record<string, string>;
 }
 
+interface ImportCLIOpts extends GlobalCLIOpts {
+  mode?: string;
+  integrityCheck?: boolean;
+}
+
 function parseProjectPath(val: string, prev: Record<string, string>): Record<string, string> {
   const eqIdx = val.indexOf('=');
   if (eqIdx < 1) return prev;
@@ -62,13 +67,19 @@ export function buildProgram(): Command {
     await run(allOpts);
   });
 
-  program
+  const importCmd = program
     .command('import')
     .description('Import a bundle onto this machine')
-    .action(async () => {
-      const { run } = await import('./commands/import.js');
-      await run();
-    });
+    .argument('<bundle>', 'path to the .cmemmov bundle file')
+    .option('--mode <spec>', 'merge|overwrite|overwrite=<category>', 'merge')
+    .option('--no-integrity-check', 'skip bundle checksum verification');
+
+  importCmd.action(async () => {
+    const bundlePath = importCmd.args[0] ?? '';
+    const allOpts = importCmd.optsWithGlobals<ImportCLIOpts>();
+    const { run } = await import('./commands/import.js');
+    await run(bundlePath, allOpts);
+  });
 
   program
     .command('fix-paths')

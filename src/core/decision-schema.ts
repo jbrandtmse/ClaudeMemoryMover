@@ -40,6 +40,9 @@ export interface ImportDecision {
   bundlePath: string;
   categories: ClaudeCategory[];
   mode: ImportMode;
+  // Categories to apply with 'overwrite' semantics when `mode === 'merge'`.
+  // Encodes `--mode overwrite=<category>` without changing the ImportMode union.
+  overwriteCategories: ClaudeCategory[];
   dryRun: boolean;
   noIntegrityCheck: boolean;
   silent: boolean;

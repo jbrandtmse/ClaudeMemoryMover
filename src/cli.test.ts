@@ -217,8 +217,9 @@ describe('cli', () => {
       const cliTryMatches = cliSource.match(/\btry\s*{/g) ?? [];
       expect(cliTryMatches).toHaveLength(1);
 
-      // 'export' is implemented as of Story 1.10 and is no longer a placeholder.
-      const placeholders = ['import', 'fix-paths', 'share', 'rollback', 'completion'];
+      // 'export' (Story 1.10) and 'import' (Story 1.11) are implemented and
+      // are no longer placeholders.
+      const placeholders = ['fix-paths', 'share', 'rollback', 'completion'];
       for (const name of placeholders) {
         const src = await fs.readFile(
           url.fileURLToPath(new URL(`./commands/${name}.ts`, import.meta.url)),
@@ -231,7 +232,7 @@ describe('cli', () => {
   });
 
   describe('AC7: real placeholder modules throw CmemmovError(INTERNAL/not implemented)', () => {
-    it.each(['import', 'fix-paths', 'share', 'rollback', 'completion'])(
+    it.each(['fix-paths', 'share', 'rollback', 'completion'])(
       '%s placeholder throws INTERNAL with not-implemented hint',
       async (name) => {
         const mod = await vi.importActual<{ run: () => Promise<void> }>(
@@ -274,8 +275,8 @@ describe('cli', () => {
       expect(tracker.loaded).toEqual(['export']);
     });
 
-    it('cmemmov import invokes only the import command run()', async () => {
-      await runCli(['import']);
+    it('cmemmov import <bundle> invokes only the import command run()', async () => {
+      await runCli(['import', '/tmp/bundle.cmemmov']);
       expect(tracker.loaded).toEqual(['import']);
     });
 
