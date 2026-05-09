@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Bundle } from '../core/bundle-schema.js';
 import type { ApplyCategoryOpts } from '../services/claude-writer.js';
-import type { ProjectPathResult } from '../ui/prompts.js';
+import type { CrossOsPathResult, ProjectPathResult } from '../ui/prompts.js';
 
 interface CapturedBackup {
   claudeDir: string;
@@ -33,7 +33,10 @@ const state = vi.hoisted<{
   readdirResults: Map<string, string[]>;
   promptResults: ProjectPathResult[];
   promptCalls: { slug: string; originalPath: string; suggestion: string | null; silent: boolean }[];
+  crossOsPromptResults: CrossOsPathResult[];
+  crossOsPromptCalls: { slug: string; originalPath: string; suggestion: string | null; silent: boolean }[];
   findMatchingDirResult: string | null;
+  suggestRemapResult: string | null;
 }>(() => ({
   bundleBytes: Buffer.from('{}'),
   bundle: null,
@@ -50,7 +53,10 @@ const state = vi.hoisted<{
   readdirResults: new Map(),
   promptResults: [],
   promptCalls: [],
+  crossOsPromptResults: [],
+  crossOsPromptCalls: [],
   findMatchingDirResult: null,
+  suggestRemapResult: null,
 }));
 
 function makeFakeGate(kind: 'live' | 'dry'): FakeGate {
@@ -146,6 +152,16 @@ vi.mock('../ui/prompts.js', () => ({
       return Promise.resolve(next);
     },
   ),
+  confirmCrossOsPath: vi.fn(
+    (opts: { slug: string; originalPath: string; suggestion: string | null; silent: boolean }) => {
+      state.crossOsPromptCalls.push(opts);
+      const next = state.crossOsPromptResults.shift();
+      if (next === undefined) {
+        return Promise.resolve<CrossOsPathResult>({ action: 'skip', path: opts.originalPath });
+      }
+      return Promise.resolve(next);
+    },
+  ),
 }));
 
 vi.mock('../core/path-engine.js', async () => {
@@ -154,6 +170,7 @@ vi.mock('../core/path-engine.js', async () => {
   return {
     ...actual,
     findMatchingDir: vi.fn(() => state.findMatchingDirResult),
+    suggestRemap: vi.fn(() => state.suggestRemapResult),
   };
 });
 
@@ -164,11 +181,15 @@ import * as writerSvc from '../services/claude-writer.js';
 import * as gateSvc from '../services/write-gate.js';
 import * as parserSvc from '../services/bundle-parser.js';
 
+// Default same-OS sourcePlatform so existing same-OS tests stay same-OS on
+// any host. Cross-OS suites override this explicitly.
+const HOST_PLATFORM = process.platform as 'win32' | 'darwin' | 'linux';
+
 function makeBundle(overrides: Partial<Bundle> = {}): Bundle {
   return {
     version: '1.0.0',
     exportedAt: '2026-05-09T10:00:00.000Z',
-    sourcePlatform: 'linux',
+    sourcePlatform: HOST_PLATFORM,
     claudeVersion: 'unknown',
     hasCredentials: false,
     projects: [],
@@ -193,7 +214,10 @@ function resetState(): void {
   state.readdirResults = new Map();
   state.promptResults = [];
   state.promptCalls = [];
+  state.crossOsPromptResults = [];
+  state.crossOsPromptCalls = [];
   state.findMatchingDirResult = null;
+  state.suggestRemapResult = null;
 }
 
 beforeEach(() => {
@@ -647,5 +671,368 @@ describe('bundle.global.claudeJson is applied via writer surface', () => {
       (c) => c.category === 'claudeJson',
     );
     expect(claudeJsonApplied).toBe(false);
+  });
+});
+
+describe('cross-OS remap', () => {
+  // Pick a sourcePlatform guaranteed different from the host so the cross-OS
+  // branch fires regardless of where the test suite runs.
+  const CROSS_SOURCE: 'win32' | 'darwin' | 'linux' =
+    HOST_PLATFORM === 'linux' ? 'darwin' : 'linux';
+
+  // Re-exported here so tests can normalize expected paths against the host's
+  // path module (Windows test runners produce '\home\u\...').
+  // Using top-level import would couple the whole file; instead we lazy-load.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path = require('node:path') as typeof import('node:path');
+
+  it('AC1: announces cross-OS migration on stderr before processing', async () => {
+    state.bundle = makeBundle({ sourcePlatform: CROSS_SOURCE, projects: [] });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await run('/tmp/bundle.cmemmov', {});
+
+    const stderrText = stderrSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    expect(stderrText).toContain(
+      `Export source: ${CROSS_SOURCE}. Current platform: ${process.platform}. Path remapping required.`,
+    );
+    stderrSpy.mockRestore();
+  });
+
+  it('AC4: --remap substitutes prefix; auto-confirmed outcome recorded', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        {
+          slug: '-old-host-proj-a',
+          originalPath: '/old/host/proj-a',
+          memories: [{ filename: 'm.md', content: 'm' }],
+        },
+      ],
+    });
+
+    await run('/tmp/bundle.cmemmov', { remap: ['/old/host=/home/u/dev'] });
+
+    const projectMem = state.applyCalls.find(
+      (c): c is Extract<ApplyCategoryOpts, { category: 'projectMemory' }> =>
+        c.category === 'projectMemory',
+    );
+    expect(projectMem).toBeDefined();
+    expect(projectMem?.data.slug).toBe('-old-host-proj-a');
+  });
+
+  it('AC4: --remap with no matching rule throws PATH_REMAP_AMBIGUOUS', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        {
+          slug: '-unmatched',
+          originalPath: '/some/other/place',
+          memories: [{ filename: 'm.md', content: 'm' }],
+        },
+      ],
+    });
+
+    await expect(
+      run('/tmp/bundle.cmemmov', { remap: ['/old/host=/home/u/dev'] }),
+    ).rejects.toMatchObject({
+      code: 'PATH_REMAP_AMBIGUOUS',
+      hint: expect.stringContaining('/some/other/place') as unknown,
+    });
+  });
+
+  it('AC4: --remap with multiple rules applies each to matching projects', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        {
+          slug: 'a',
+          originalPath: '/old/agents/a',
+          memories: [{ filename: 'm.md', content: 'm' }],
+        },
+        {
+          slug: 'b',
+          originalPath: '/old/dev/b',
+          memories: [{ filename: 'm.md', content: 'm' }],
+        },
+      ],
+    });
+
+    await run('/tmp/bundle.cmemmov', {
+      remap: ['/old/agents=/home/u/agents', '/old/dev=/home/u/dev'],
+    });
+
+    const slugs = state.applyCalls
+      .filter((c): c is Extract<ApplyCategoryOpts, { category: 'projectMemory' }> => c.category === 'projectMemory')
+      .map((c) => c.data.slug);
+    expect(slugs).toContain('a');
+    expect(slugs).toContain('b');
+  });
+
+  it('AC10: --remap that escapes target home throws PATH_REMAP_AMBIGUOUS', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        {
+          slug: '-evil',
+          originalPath: '/old/host/proj-a',
+          memories: [{ filename: 'm.md', content: 'm' }],
+        },
+      ],
+    });
+
+    await expect(
+      run('/tmp/bundle.cmemmov', {
+        remap: ['/old/host=/home/u/../../../etc'],
+      }),
+    ).rejects.toMatchObject({
+      code: 'PATH_REMAP_AMBIGUOUS',
+      hint: expect.stringContaining('escapes') as unknown,
+    });
+  });
+
+  it('AC10: --remap that resolves to a sibling home (~maya2 vs ~maya) is rejected', async () => {
+    // The locator mock returns claudeDir=/home/u/.claude, so homedir=/home/u.
+    // A target of /home/u2/... shares the prefix /home/u but is a different
+    // user's home — must fail the boundary check.
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        {
+          slug: '-evil-sibling',
+          originalPath: '/old/host/proj-a',
+          memories: [{ filename: 'm.md', content: 'm' }],
+        },
+      ],
+    });
+
+    await expect(
+      run('/tmp/bundle.cmemmov', {
+        remap: ['/old/host=/home/u2'],
+      }),
+    ).rejects.toMatchObject({
+      code: 'PATH_REMAP_AMBIGUOUS',
+      hint: expect.stringContaining('escapes') as unknown,
+    });
+  });
+
+  it('AC10: silent + cross-OS + no --remap rules throws PATH_REMAP_AMBIGUOUS (does not silently skip)', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        {
+          slug: '-proj-a',
+          originalPath: '/old/host/proj-a',
+          memories: [{ filename: 'm.md', content: 'm' }],
+        },
+      ],
+    });
+
+    await expect(
+      run('/tmp/bundle.cmemmov', { silent: true }),
+    ).rejects.toMatchObject({
+      code: 'PATH_REMAP_AMBIGUOUS',
+      hint: expect.stringContaining('--remap') as unknown,
+    });
+  });
+
+  it('AC6: same-OS import does NOT trigger cross-OS branch (no stderr announcement)', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: HOST_PLATFORM, // explicit same-OS
+      projects: [],
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await run('/tmp/bundle.cmemmov', {});
+
+    const stderrText = stderrSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    expect(stderrText).not.toMatch(/Path remapping required/);
+    stderrSpy.mockRestore();
+  });
+
+  it('AC2: interactive accept with suggestion → auto-confirmed outcome', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        {
+          slug: '-proj-a',
+          originalPath: '/old/host/proj-a',
+          memories: [{ filename: 'm.md', content: 'm' }],
+        },
+      ],
+    });
+    state.suggestRemapResult = '/home/u/dev/proj-a';
+    state.crossOsPromptResults.push({ action: 'accept', path: '/home/u/dev/proj-a' });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await run('/tmp/bundle.cmemmov', { json: true });
+
+    // Validate the prompt was offered with the suggestion
+    expect(state.crossOsPromptCalls[0]?.suggestion).toBe('/home/u/dev/proj-a');
+    // Validate the JSON result.summary.remappings contains an auto-confirmed entry
+    const raw = stdoutSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    interface JsonResult {
+      success: boolean;
+      summary: {
+        text: string;
+        remappings: { slug: string; outcome: string; targetPath: string | null }[];
+      };
+    }
+    const parsed = JSON.parse(raw) as JsonResult;
+    expect(parsed.summary.remappings).toHaveLength(1);
+    expect(parsed.summary.remappings[0]?.outcome).toBe('auto-confirmed');
+    expect(parsed.summary.remappings[0]?.slug).toBe('-proj-a');
+    stdoutSpy.mockRestore();
+  });
+
+  it('AC2/AC3: interactive override → overridden outcome', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        {
+          slug: '-proj-b',
+          originalPath: '/old/host/proj-b',
+          memories: [{ filename: 'm.md', content: 'm' }],
+        },
+      ],
+    });
+    state.suggestRemapResult = null;
+    state.crossOsPromptResults.push({ action: 'override', path: '/home/u/typed/proj-b' });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await run('/tmp/bundle.cmemmov', { json: true });
+
+    const raw = stdoutSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    interface JsonResult2 {
+      summary: { remappings: { outcome: string; targetPath: string | null }[] };
+    }
+    const parsed = JSON.parse(raw) as JsonResult2;
+    expect(parsed.summary.remappings[0]?.outcome).toBe('overridden');
+    stdoutSpy.mockRestore();
+  });
+
+  it('AC5: skipped projects flow into IMPORT_PARTIAL with fix-paths hint', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        {
+          slug: '-proj-skip',
+          originalPath: '/old/host/proj-skip',
+          memories: [{ filename: 'm.md', content: 'm' }],
+        },
+      ],
+    });
+    state.suggestRemapResult = null;
+    state.crossOsPromptResults.push({ action: 'skip', path: '/old/host/proj-skip' });
+
+    await expect(run('/tmp/bundle.cmemmov', {})).rejects.toMatchObject({
+      code: 'IMPORT_PARTIAL',
+      hint: expect.stringContaining('fix-paths') as unknown,
+    });
+  });
+
+  it('AC7: RemapDecisions shape (slug, originalPath, targetPath, outcome) is stable', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        {
+          slug: '-shape',
+          originalPath: '/old/host/shape',
+          memories: [{ filename: 'm.md', content: 'm' }],
+        },
+      ],
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await run('/tmp/bundle.cmemmov', {
+      json: true,
+      remap: ['/old/host=/home/u/dev'],
+    });
+
+    const raw = stdoutSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    interface JsonResult3 {
+      summary: {
+        remappings: {
+          slug: string;
+          originalPath: string;
+          targetPath: string | null;
+          outcome: string;
+        }[];
+      };
+    }
+    const parsed = JSON.parse(raw) as JsonResult3;
+    const dec = parsed.summary.remappings[0];
+    expect(dec).toBeDefined();
+    expect(dec?.slug).toBe('-shape');
+    expect(dec?.originalPath).toBe('/old/host/shape');
+    expect(dec?.targetPath).toBe(path.normalize('/home/u/dev/shape'));
+    expect(dec?.outcome).toBe('auto-confirmed');
+    stdoutSpy.mockRestore();
+  });
+
+  it('AC8: summary counts auto/user/override/skipped buckets', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        { slug: 'auto1', originalPath: '/old/auto1', memories: [{ filename: 'm.md', content: 'm' }] },
+        { slug: 'override1', originalPath: '/old/override1', memories: [{ filename: 'm.md', content: 'm' }] },
+        { slug: 'skip1', originalPath: '/old/skip1', memories: [{ filename: 'm.md', content: 'm' }] },
+      ],
+    });
+    // suggestRemap returns same value for all three; prompt mock supplies
+    // distinct outcomes per call.
+    state.suggestRemapResult = '/home/u/x';
+    state.crossOsPromptResults.push(
+      { action: 'accept', path: '/home/u/x' },
+      { action: 'override', path: '/home/u/y' },
+      { action: 'skip', path: '/old/skip1' },
+    );
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    // Skip causes IMPORT_PARTIAL — catch and inspect stderr for the count line
+    await expect(run('/tmp/bundle.cmemmov', {})).rejects.toMatchObject({
+      code: 'IMPORT_PARTIAL',
+    });
+    const stderrText = stderrSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    expect(stderrText).toMatch(/Remapped: 1 auto \/ 0 user \/ 1 override \/ 1 skipped\./);
+    stderrSpy.mockRestore();
+  });
+
+  it('AC9: --json mode emits summary.remappings array on stdout', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        { slug: 'p', originalPath: '/old/host/p', memories: [{ filename: 'm.md', content: 'm' }] },
+      ],
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await run('/tmp/bundle.cmemmov', {
+      json: true,
+      remap: ['/old/host=/home/u/dev'],
+    });
+
+    const raw = stdoutSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    interface JsonResultArr {
+      summary: { remappings: unknown[] };
+    }
+    const parsed = JSON.parse(raw) as JsonResultArr;
+    expect(Array.isArray(parsed.summary.remappings)).toBe(true);
+    expect(parsed.summary.remappings).toHaveLength(1);
+    stdoutSpy.mockRestore();
   });
 });

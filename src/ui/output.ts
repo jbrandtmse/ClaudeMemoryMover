@@ -11,7 +11,10 @@ export interface ErrorRecord {
 export interface OutputResult {
   success: boolean;
   command: string;
-  summary: string;
+  // In JSON mode, callers may attach structured data alongside the human-
+  // readable text by passing `extra` to `finish()`. When present, `summary`
+  // serializes as an object `{ text, ...extra }` instead of a bare string.
+  summary: string | (Record<string, unknown> & { text: string });
   errors: ErrorRecord[];
   warnings: string[];
 }
@@ -52,12 +55,14 @@ export class Output {
     process.stderr.write(lines.join('\n') + '\n');
   }
 
-  finish(summary: string, success = true): void {
+  finish(summary: string, success = true, extra?: Record<string, unknown>): void {
     if (this.#json) {
+      const summaryPayload: OutputResult['summary'] =
+        extra === undefined ? summary : { text: summary, ...extra };
       const result: OutputResult = {
         success,
         command: this.#command,
-        summary,
+        summary: summaryPayload,
         errors: this.#errors,
         warnings: this.#warnings,
       };

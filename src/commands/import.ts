@@ -1,5 +1,5 @@
 import { readFile, stat, readdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, normalize, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import process from 'node:process';
 import { locateClaude } from '../services/claude-locator.js';
@@ -12,15 +12,17 @@ import {
   type WriteGate,
 } from '../services/write-gate.js';
 import { Output } from '../ui/output.js';
-import { confirmProjectPath } from '../ui/prompts.js';
+import { confirmCrossOsPath, confirmProjectPath } from '../ui/prompts.js';
 import { CmemmovError } from '../core/error.js';
 import {
   ALL_CATEGORIES,
   type ClaudeCategory,
   type ImportDecision,
   type ImportMode,
+  type RemapDecision,
+  type RemapDecisions,
 } from '../core/decision-schema.js';
-import { findMatchingDir } from '../core/path-engine.js';
+import { findMatchingDir, isCrossPlatformMigration, suggestRemap } from '../core/path-engine.js';
 
 export interface ImportOpts {
   mode?: string;
@@ -30,6 +32,9 @@ export interface ImportOpts {
   dryRun?: boolean;
   silent?: boolean;
   json?: boolean;
+  // Repeatable `--remap "source-prefix=target-prefix"` rules for scripted
+  // cross-OS imports. Empty/undefined means interactive cross-OS mode.
+  remap?: string[];
 }
 
 function parseMode(spec: string): {
@@ -57,6 +62,16 @@ function parseMode(spec: string): {
 
 function buildDecision(bundlePath: string, opts: ImportOpts): ImportDecision {
   const { mode, overwriteCategories } = parseMode(opts.mode ?? 'merge');
+  const remap = (opts.remap ?? []).map((spec) => {
+    const eqIdx = spec.indexOf('=');
+    if (eqIdx < 1) {
+      throw new CmemmovError({
+        code: 'INTERNAL',
+        hint: `Invalid --remap format: ${spec}. Use "source-prefix=target-prefix"`,
+      });
+    }
+    return { lhs: spec.slice(0, eqIdx), rhs: spec.slice(eqIdx + 1) };
+  });
   // Commander emits `integrityCheck: false` when `--no-integrity-check` is
   // passed; absent flag leaves it undefined, which means "do verify".
   return {
@@ -68,6 +83,7 @@ function buildDecision(bundlePath: string, opts: ImportOpts): ImportDecision {
     noIntegrityCheck: opts.integrityCheck === false,
     silent: opts.silent === true,
     json: opts.json === true,
+    remap,
   };
 }
 
@@ -173,6 +189,132 @@ async function resolveProjects(
   }
 
   return { resolved, skippedSlugs };
+}
+
+// True when `target` is the home dir itself or strictly beneath it on the
+// current platform. Plain `startsWith(homedir)` would let `~maya2` slip past
+// `~maya`; the separator boundary closes that sibling-prefix gap.
+function isInsideHome(target: string, homedir: string): boolean {
+  if (target === homedir) return true;
+  return target.startsWith(homedir + sep);
+}
+
+async function resolveProjectsCrossOS(
+  bundleProjects: { slug: string; originalPath: string }[],
+  claudeDir: string,
+  decision: ImportDecision,
+  out: Output,
+): Promise<{ remapDecisions: RemapDecisions; skippedSlugs: string[] }> {
+  const targetPlatform = process.platform;
+  // Normalize the home boundary so the traversal-guard comparison compares
+  // apples to apples — `path.normalize` on Windows converts `/` to `\`, so
+  // both sides of the check must agree on separators.
+  const homedir = normalize(dirname(claudeDir));
+  const remapDecisions: RemapDecisions = [];
+  const skippedSlugs: string[] = [];
+
+  // Silent + cross-OS + no --remap rules is unrecoverable: the prompt
+  // would silently skip every project, leaving the user with an opaque
+  // IMPORT_PARTIAL exit. Surface a clear PATH_REMAP_AMBIGUOUS instead so
+  // scripted callers see exactly what's missing. (Bundles with zero
+  // projects can still proceed — there's nothing to ask about.)
+  if (
+    decision.silent &&
+    decision.remap.length === 0 &&
+    bundleProjects.length > 0
+  ) {
+    throw new CmemmovError({
+      code: 'PATH_REMAP_AMBIGUOUS',
+      hint: '--remap rule(s) required in silent cross-OS mode',
+    });
+  }
+
+  for (const project of bundleProjects) {
+    // Scripted --remap mode: every project must match a rule, otherwise the
+    // run is ambiguous and we exit 2 (PATH_REMAP_AMBIGUOUS) before any writes.
+    if (decision.remap.length > 0) {
+      const match = decision.remap.find(({ lhs }) => project.originalPath.startsWith(lhs));
+      if (match === undefined) {
+        throw new CmemmovError({
+          code: 'PATH_REMAP_AMBIGUOUS',
+          hint: `--remap rule needed for ${project.originalPath}`,
+        });
+      }
+      const raw = match.rhs + project.originalPath.slice(match.lhs.length);
+      const targetPath = normalize(raw);
+      // Path-traversal guard: after collapsing `..` segments, the resolved
+      // path must remain inside the user's home. Cross-OS imports often see
+      // a mix of `/` and `\` separators, so the normalize+isInsideHome pair
+      // is what catches `=/Users/maya/../../../etc` style attacks AND
+      // sibling-home crossings like `~maya` → `~maya2`.
+      if (!isInsideHome(targetPath, homedir)) {
+        throw new CmemmovError({
+          code: 'PATH_REMAP_AMBIGUOUS',
+          hint: `Remapped path '${targetPath}' escapes target home directory`,
+        });
+      }
+      out.progress(`✓ ${project.slug} → ${targetPath}`);
+      remapDecisions.push({
+        slug: project.slug,
+        originalPath: project.originalPath,
+        targetPath,
+        outcome: 'auto-confirmed',
+      });
+      continue;
+    }
+
+    // Interactive cross-OS mode: try home-prefix substitution first, then
+    // fall back to scanning local subdirs for a basename match.
+    const suggestion =
+      suggestRemap(project.originalPath, targetPlatform, homedir) ??
+      (await gatherSuggestion(project.originalPath, claudeDir));
+
+    const result = await confirmCrossOsPath({
+      slug: project.slug,
+      originalPath: project.originalPath,
+      suggestion,
+      silent: decision.silent,
+    });
+
+    if (result.action === 'skip') {
+      out.progress(`⊘ skipped ${project.slug}`);
+      skippedSlugs.push(project.slug);
+      remapDecisions.push({
+        slug: project.slug,
+        originalPath: project.originalPath,
+        targetPath: null,
+        outcome: 'skipped',
+      });
+      continue;
+    }
+
+    const targetPath = normalize(result.path);
+    if (!isInsideHome(targetPath, homedir)) {
+      // Treat traversal-escaped path as unresolvable and surface a warning
+      // so the user knows their typed path was rejected.
+      out.warn(`Path '${result.path}' escapes target home — treating as skip`);
+      skippedSlugs.push(project.slug);
+      remapDecisions.push({
+        slug: project.slug,
+        originalPath: project.originalPath,
+        targetPath: null,
+        outcome: 'skipped',
+      });
+      continue;
+    }
+
+    const outcome: RemapDecision['outcome'] =
+      result.action === 'accept' ? 'auto-confirmed' : 'overridden';
+    out.progress(`✓ ${project.slug} → ${targetPath}`);
+    remapDecisions.push({
+      slug: project.slug,
+      originalPath: project.originalPath,
+      targetPath,
+      outcome,
+    });
+  }
+
+  return { remapDecisions, skippedSlugs };
 }
 
 async function applyGlobalCategories(
@@ -367,6 +509,16 @@ export async function run(bundlePath: string, opts: ImportOpts = {}): Promise<vo
     },
   });
 
+  // AC #1: announce cross-OS migration BEFORE backup/resolve, so the user
+  // sees it immediately and any subsequent error message has the proper
+  // context. The exact wording is asserted by tests.
+  const isCrossOS = isCrossPlatformMigration(bundle.sourcePlatform, process.platform);
+  if (isCrossOS) {
+    out.progress(
+      `Export source: ${bundle.sourcePlatform}. Current platform: ${process.platform}. Path remapping required.`,
+    );
+  }
+
   let gate: WriteGate;
   let backupPath: string | undefined;
   let projectedBackup: string | undefined;
@@ -383,12 +535,37 @@ export async function run(bundlePath: string, opts: ImportOpts = {}): Promise<vo
     });
   }
 
-  const { resolved, skippedSlugs } = await resolveProjects(
-    bundle.projects,
-    claudeDir,
-    decision,
-    out,
-  );
+  let resolved: ResolvedProject[];
+  let skippedSlugs: string[];
+  let remapDecisions: RemapDecisions = [];
+
+  if (isCrossOS) {
+    const crossOsResult = await resolveProjectsCrossOS(
+      bundle.projects,
+      claudeDir,
+      decision,
+      out,
+    );
+    remapDecisions = crossOsResult.remapDecisions;
+    skippedSlugs = crossOsResult.skippedSlugs;
+    // applyProjectCategories writes per-slug; the confirmedPath is used for
+    // summary display only, so rebuild ResolvedProject from non-skipped
+    // remap decisions.
+    resolved = crossOsResult.remapDecisions
+      .filter(
+        (d): d is RemapDecision & { targetPath: string } => d.targetPath !== null,
+      )
+      .map((d) => ({ slug: d.slug, confirmedPath: d.targetPath }));
+  } else {
+    const sameOsResult = await resolveProjects(
+      bundle.projects,
+      claudeDir,
+      decision,
+      out,
+    );
+    resolved = sameOsResult.resolved;
+    skippedSlugs = sameOsResult.skippedSlugs;
+  }
 
   const globalCount = await applyGlobalCategories(
     bundle,
@@ -430,6 +607,17 @@ export async function run(bundlePath: string, opts: ImportOpts = {}): Promise<vo
       summaryParts.push(`Backup: ${backupPath}`);
     }
   }
+  if (isCrossOS) {
+    // AC #8: per-outcome counts for cross-OS imports. Same-OS imports omit
+    // this line because all four outcome buckets are conceptually empty.
+    const autoConfirmed = remapDecisions.filter((d) => d.outcome === 'auto-confirmed').length;
+    const userConfirmed = remapDecisions.filter((d) => d.outcome === 'user-confirmed').length;
+    const overridden = remapDecisions.filter((d) => d.outcome === 'overridden').length;
+    const skipped = remapDecisions.filter((d) => d.outcome === 'skipped').length;
+    summaryParts.push(
+      `Remapped: ${autoConfirmed.toString()} auto / ${userConfirmed.toString()} user / ${overridden.toString()} override / ${skipped.toString()} skipped.`,
+    );
+  }
   if (skippedSlugs.length > 0) {
     summaryParts.push(
       `Skipped ${skippedSlugs.length.toString()} project${skippedSlugs.length === 1 ? '' : 's'}: ${skippedSlugs.join(', ')}.`,
@@ -446,5 +634,12 @@ export async function run(bundlePath: string, opts: ImportOpts = {}): Promise<vo
     });
   }
 
-  out.finish(summaryParts.join(' '), true);
+  // AC #9: in JSON mode the result.summary object includes a `remappings`
+  // array of every RemapDecision. Same-OS imports pass no extra payload so
+  // the JSON shape stays a bare string for backward compatibility.
+  if (isCrossOS) {
+    out.finish(summaryParts.join(' '), true, { remappings: remapDecisions });
+  } else {
+    out.finish(summaryParts.join(' '), true);
+  }
 }

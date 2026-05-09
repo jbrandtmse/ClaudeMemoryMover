@@ -51,7 +51,22 @@ export interface ImportDecision {
   noIntegrityCheck: boolean;
   silent: boolean;
   json: boolean;
+  // Cross-OS prefix-substitution rules collected from `--remap` flags. Empty
+  // for same-OS imports; non-empty entries opt the importer into scripted
+  // remap mode and bypass the interactive `confirmCrossOsPath` prompt.
+  remap: { lhs: string; rhs: string }[];
 }
+
+export type RemapOutcome = 'auto-confirmed' | 'user-confirmed' | 'overridden' | 'skipped';
+
+export interface RemapDecision {
+  slug: string;
+  originalPath: string;
+  targetPath: string | null;
+  outcome: RemapOutcome;
+}
+
+export type RemapDecisions = RemapDecision[];
 
 export interface RollbackDecision {
   backupPath: string | undefined;

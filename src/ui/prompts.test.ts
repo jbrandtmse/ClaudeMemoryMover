@@ -21,6 +21,7 @@ import {
   selectMergeMode,
   selectProjects,
   confirmCredentials,
+  confirmCrossOsPath,
   confirmOverwrite,
   confirmProjectPath,
   createSpinner,
@@ -332,6 +333,98 @@ describe('confirmProjectPath', () => {
       confirmProjectPath({
         slug: '-home-x',
         originalPath: '/home/x',
+        suggestion: null,
+        silent: false,
+      }),
+    ).rejects.toThrow('exit');
+    expect(exitSpy).toHaveBeenCalledWith(130);
+    exitSpy.mockRestore();
+  });
+});
+
+describe('confirmCrossOsPath', () => {
+  it('returns { action: "skip" } in silent mode without calling clack', async () => {
+    const result = await confirmCrossOsPath({
+      slug: '-home-x-app',
+      originalPath: 'C:\\Users\\maya\\app',
+      suggestion: '/Users/maya/app',
+      silent: true,
+    });
+    expect(result).toEqual({ action: 'skip', path: 'C:\\Users\\maya\\app' });
+    expect(clack.select).not.toHaveBeenCalled();
+    expect(clack.text).not.toHaveBeenCalled();
+  });
+
+  it('interactive: select accept returns suggestion path when suggestion is not null', async () => {
+    vi.mocked(clack.select).mockResolvedValueOnce('accept');
+    const result = await confirmCrossOsPath({
+      slug: '-home-x-app',
+      originalPath: 'C:\\Users\\maya\\app',
+      suggestion: '/Users/maya/app',
+      silent: false,
+    });
+    expect(result).toEqual({ action: 'accept', path: '/Users/maya/app' });
+    const optsArg = vi.mocked(clack.select).mock.calls[0]?.[0] as
+      | { options: { value: string }[] }
+      | undefined;
+    const values = optsArg?.options.map((o) => o.value) ?? [];
+    expect(values).toContain('accept');
+    expect(values).toContain('override');
+    expect(values).toContain('skip');
+  });
+
+  it('interactive: when suggestion is null, accept option is omitted', async () => {
+    vi.mocked(clack.select).mockResolvedValueOnce('skip');
+    await confirmCrossOsPath({
+      slug: '-home-x-app',
+      originalPath: 'C:\\Users\\maya\\app',
+      suggestion: null,
+      silent: false,
+    });
+    const optsArg = vi.mocked(clack.select).mock.calls[0]?.[0] as
+      | { options: { value: string }[] }
+      | undefined;
+    const values = optsArg?.options.map((o) => o.value) ?? [];
+    expect(values).not.toContain('accept');
+    expect(values).toContain('override');
+    expect(values).toContain('skip');
+  });
+
+  it('interactive: override calls clack.text and returns trimmed path', async () => {
+    vi.mocked(clack.select).mockResolvedValueOnce('override');
+    vi.mocked(clack.text).mockResolvedValueOnce('  /Users/maya/dev/app  ');
+    const result = await confirmCrossOsPath({
+      slug: '-home-x-app',
+      originalPath: 'C:\\Users\\maya\\app',
+      suggestion: '/Users/maya/app',
+      silent: false,
+    });
+    expect(result).toEqual({ action: 'override', path: '/Users/maya/dev/app' });
+    expect(clack.text).toHaveBeenCalledTimes(1);
+  });
+
+  it('interactive: skip returns originalPath without calling clack.text', async () => {
+    vi.mocked(clack.select).mockResolvedValueOnce('skip');
+    const result = await confirmCrossOsPath({
+      slug: '-home-x-app',
+      originalPath: 'C:\\Users\\maya\\app',
+      suggestion: '/Users/maya/app',
+      silent: false,
+    });
+    expect(result).toEqual({ action: 'skip', path: 'C:\\Users\\maya\\app' });
+    expect(clack.text).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+C on select → cancel + exit(130)', async () => {
+    vi.mocked(clack.select).mockResolvedValueOnce(CANCEL_SYMBOL);
+    vi.mocked(clack.isCancel).mockReturnValueOnce(true);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+    await expect(
+      confirmCrossOsPath({
+        slug: '-home-x',
+        originalPath: 'C:\\Users\\maya\\app',
         suggestion: null,
         silent: false,
       }),

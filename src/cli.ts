@@ -23,6 +23,7 @@ interface ExportCLIOpts extends GlobalCLIOpts {
 interface ImportCLIOpts extends GlobalCLIOpts {
   mode?: string;
   integrityCheck?: boolean;
+  remap?: string[];
 }
 
 interface RollbackCLIOpts extends GlobalCLIOpts {
@@ -35,6 +36,10 @@ function parseProjectPath(val: string, prev: Record<string, string>): Record<str
   const slug = val.slice(0, eqIdx);
   const path = val.slice(eqIdx + 1);
   return { ...prev, [slug]: path };
+}
+
+function parseRemap(val: string, prev: string[]): string[] {
+  return [...prev, val];
 }
 
 export function buildProgram(): Command {
@@ -76,7 +81,13 @@ export function buildProgram(): Command {
     .description('Import a bundle onto this machine')
     .argument('<bundle>', 'path to the .cmemmov bundle file')
     .option('--mode <spec>', 'merge|overwrite|overwrite=<category>', 'merge')
-    .option('--no-integrity-check', 'skip bundle checksum verification');
+    .option('--no-integrity-check', 'skip bundle checksum verification')
+    .option(
+      '--remap <spec>',
+      'remap prefix for cross-OS import: "source-prefix=target-prefix" (repeatable)',
+      parseRemap,
+      [] as string[],
+    );
 
   importCmd.action(async () => {
     const bundlePath = importCmd.args[0] ?? '';

@@ -6,6 +6,9 @@ import {
   type ExportDecision,
   type ImportDecision,
   type ImportMode,
+  type RemapDecision,
+  type RemapDecisions,
+  type RemapOutcome,
   type RollbackDecision,
 } from './decision-schema.js';
 
@@ -80,6 +83,7 @@ describe('decision-schema', () => {
         noIntegrityCheck: false,
         silent: false,
         json: true,
+        remap: [],
       } satisfies ImportDecision;
       expect(value.mode).toBe('merge');
       expect(value.overwriteCategories).toEqual([]);
@@ -95,6 +99,7 @@ describe('decision-schema', () => {
         noIntegrityCheck: false,
         silent: true,
         json: false,
+        remap: [],
       } satisfies ImportDecision;
       expect(value.overwriteCategories).toContain('globalSettings');
     });
@@ -120,6 +125,89 @@ describe('decision-schema', () => {
       const merge: ImportMode = 'merge';
       const overwrite: ImportMode = 'overwrite';
       expect([merge, overwrite]).toEqual(['merge', 'overwrite']);
+    });
+
+    it('ImportDecision accepts remap entries with lhs/rhs', () => {
+      const value = {
+        bundlePath: '/tmp/bundle.cmemmov.json',
+        categories: ['projectMemory'],
+        mode: 'merge' as ImportMode,
+        overwriteCategories: [],
+        dryRun: false,
+        noIntegrityCheck: false,
+        silent: true,
+        json: false,
+        remap: [{ lhs: 'C:\\Users\\maya', rhs: '/Users/maya' }],
+      } satisfies ImportDecision;
+      expect(value.remap[0]?.lhs).toBe('C:\\Users\\maya');
+      expect(value.remap[0]?.rhs).toBe('/Users/maya');
+    });
+
+    it('ImportDecision accepts an empty remap array (default for same-OS)', () => {
+      const value = {
+        bundlePath: '/tmp/bundle.cmemmov.json',
+        categories: [],
+        mode: 'merge' as ImportMode,
+        overwriteCategories: [],
+        dryRun: false,
+        noIntegrityCheck: false,
+        silent: false,
+        json: false,
+        remap: [],
+      } satisfies ImportDecision;
+      expect(value.remap).toEqual([]);
+    });
+  });
+
+  describe('RemapDecision/RemapDecisions/RemapOutcome', () => {
+    it('RemapOutcome accepts every defined member', () => {
+      const outcomes: RemapOutcome[] = [
+        'auto-confirmed',
+        'user-confirmed',
+        'overridden',
+        'skipped',
+      ];
+      expect(outcomes).toHaveLength(4);
+    });
+
+    it('RemapDecision accepts a fully-populated remapped value', () => {
+      const value = {
+        slug: '-home-u-proj-a',
+        originalPath: 'C:\\Users\\maya\\proj-a',
+        targetPath: '/Users/maya/proj-a',
+        outcome: 'auto-confirmed',
+      } satisfies RemapDecision;
+      expect(value.outcome).toBe('auto-confirmed');
+      expect(value.targetPath).toBe('/Users/maya/proj-a');
+    });
+
+    it('RemapDecision accepts targetPath: null when skipped', () => {
+      const value = {
+        slug: '-home-u-proj-a',
+        originalPath: '/old/proj-a',
+        targetPath: null,
+        outcome: 'skipped',
+      } satisfies RemapDecision;
+      expect(value.targetPath).toBeNull();
+    });
+
+    it('RemapDecisions is an array of RemapDecision', () => {
+      const value: RemapDecisions = [
+        {
+          slug: 'a',
+          originalPath: '/a',
+          targetPath: '/Users/u/a',
+          outcome: 'overridden',
+        },
+        {
+          slug: 'b',
+          originalPath: '/b',
+          targetPath: null,
+          outcome: 'skipped',
+        },
+      ];
+      expect(value).toHaveLength(2);
+      expect(value[0]?.outcome).toBe('overridden');
     });
   });
 });
