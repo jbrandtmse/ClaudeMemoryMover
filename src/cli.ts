@@ -25,6 +25,10 @@ interface ImportCLIOpts extends GlobalCLIOpts {
   integrityCheck?: boolean;
 }
 
+interface RollbackCLIOpts extends GlobalCLIOpts {
+  backup?: string;
+}
+
 function parseProjectPath(val: string, prev: Record<string, string>): Record<string, string> {
   const eqIdx = val.indexOf('=');
   if (eqIdx < 1) return prev;
@@ -97,13 +101,19 @@ export function buildProgram(): Command {
       await run();
     });
 
-  program
+  const rollbackCmd = program
     .command('rollback')
     .description('Restore the most recent pre-import backup')
-    .action(async () => {
-      const { run } = await import('./commands/rollback.js');
-      await run();
-    });
+    .option(
+      '--backup <path>',
+      'restore a specific backup directory instead of the most recent',
+    );
+
+  rollbackCmd.action(async () => {
+    const allOpts = rollbackCmd.optsWithGlobals<RollbackCLIOpts>();
+    const { run } = await import('./commands/rollback.js');
+    await run(allOpts);
+  });
 
   program
     .command('completion')

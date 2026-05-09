@@ -217,9 +217,9 @@ describe('cli', () => {
       const cliTryMatches = cliSource.match(/\btry\s*{/g) ?? [];
       expect(cliTryMatches).toHaveLength(1);
 
-      // 'export' (Story 1.10) and 'import' (Story 1.11) are implemented and
-      // are no longer placeholders.
-      const placeholders = ['fix-paths', 'share', 'rollback', 'completion'];
+      // 'export' (Story 1.10), 'import' (Story 1.11), and 'rollback'
+      // (Story 1.12) are implemented and are no longer placeholders.
+      const placeholders = ['fix-paths', 'share', 'completion'];
       for (const name of placeholders) {
         const src = await fs.readFile(
           url.fileURLToPath(new URL(`./commands/${name}.ts`, import.meta.url)),
@@ -232,7 +232,7 @@ describe('cli', () => {
   });
 
   describe('AC7: real placeholder modules throw CmemmovError(INTERNAL/not implemented)', () => {
-    it.each(['fix-paths', 'share', 'rollback', 'completion'])(
+    it.each(['fix-paths', 'share', 'completion'])(
       '%s placeholder throws INTERNAL with not-implemented hint',
       async (name) => {
         const mod = await vi.importActual<{ run: () => Promise<void> }>(
@@ -281,6 +281,12 @@ describe('cli', () => {
     });
 
     it('cmemmov rollback invokes only the rollback command run()', async () => {
+      // Provide a no-op success implementation: the real rollback command
+      // module is now implemented (Story 1.12) and would otherwise hit the
+      // filesystem; we only want to verify dispatch wiring here.
+      tracker.runImpl.rollback = async () => {
+        await Promise.resolve();
+      };
       await runCli(['rollback']);
       expect(tracker.loaded).toEqual(['rollback']);
     });
