@@ -1,0 +1,58 @@
+[
+  {
+    "description": "win32 simple path — no hyphens in folder names",
+    "platform": "win32",
+    "absolutePath": "C:\\Users\\Josh\\dev\\myapp",
+    "slug": "C--Users-Josh-dev-myapp",
+    "decodesTo": "C:\\Users\\Josh\\dev\\myapp"
+  },
+  {
+    "description": "win32 path with spaces",
+    "platform": "win32",
+    "absolutePath": "C:\\Users\\Josh\\My Documents\\project",
+    "slug": "C--Users-Josh-My Documents-project",
+    "decodesTo": "C:\\Users\\Josh\\My Documents\\project"
+  },
+  {
+    "description": "linux simple path — no hyphens in folder names",
+    "platform": "linux",
+    "absolutePath": "/home/jordan/dev/apigateway",
+    "slug": "-home-jordan-dev-apigateway",
+    "decodesTo": "/home/jordan/dev/apigateway"
+  },
+  {
+    "description": "darwin simple path — no hyphens in folder names",
+    "platform": "darwin",
+    "absolutePath": "/Users/taylor/projects/cmemmov",
+    "slug": "-Users-taylor-projects-cmemmov",
+    "decodesTo": "/Users/taylor/projects/cmemmov"
+  },
+  {
+    "description": "linux path with unicode in folder name",
+    "platform": "linux",
+    "absolutePath": "/home/user/résumé",
+    "slug": "-home-user-résumé",
+    "decodesTo": "/home/user/résumé"
+  },
+  {
+    "description": "win32 structurally-invalid slug for win32 (no drive prefix) — must return null",
+    "platform": "win32",
+    "absolutePath": null,
+    "slug": "-home-user-project",
+    "decodesTo": null
+  },
+  {
+    "description": "linux structurally-invalid slug for linux (no leading dash) — must return null",
+    "platform": "linux",
+    "absolutePath": null,
+    "slug": "home-user-project",
+    "decodesTo": null
+  },
+  {
+    "description": "unknown platform — must return null",
+    "platform": "freebsd",
+    "absolutePath": null,
+    "slug": "-home-user-project",
+    "decodesTo": null
+  }
+]

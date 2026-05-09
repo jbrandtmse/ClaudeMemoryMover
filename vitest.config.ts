@@ -6,6 +6,12 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
+      thresholds: {
+        'src/core/path-engine.ts': {
+          lines: 100,
+          branches: 100,
+        },
+      },
     },
   },
 });
