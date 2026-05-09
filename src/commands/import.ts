@@ -262,6 +262,13 @@ async function applyGlobalCategories(
     out.progress('Applied plugins');
     count++;
   }
+  // bundle.global.claudeJson is preserved in the bundle schema (export-side
+  // captures it) but the writer surface has no claudeJson category yet — see
+  // deferred-work.md "claudeJson restore on import". Warn so users running a
+  // round-trip on the same OS know ~/.claude.json is not being touched.
+  if (g.claudeJson !== undefined) {
+    out.warn('Bundle contains .claude.json content but import does not restore it yet (deferred). ~/.claude.json on this machine is unchanged.');
+  }
   return count;
 }
 

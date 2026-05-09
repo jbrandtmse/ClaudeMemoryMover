@@ -62,10 +62,10 @@ development_status:
   1-5-filesystem-discipline-writegate-backup-service: done
   1-6-bundle-io-parser-serializer: done
   1-7-claude-code-surface-locator-reader-writer: done
-  1-8-ui-layer-output-formatter-prompts-wrapper-decision-schema: review
+  1-8-ui-layer-output-formatter-prompts-wrapper-decision-schema: done
   1-9-cli-shell-cmemmov-entry-point-command-dispatch: done
   1-10-export-command: done
-  1-11-import-command-same-os-happy-path: review
+  1-11-import-command-same-os-happy-path: done
   1-12-rollback-command: done
   1-13-ci-matrix-3-os-test-pipeline: done
   epic-1-retrospective: optional

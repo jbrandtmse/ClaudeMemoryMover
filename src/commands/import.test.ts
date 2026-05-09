@@ -596,3 +596,45 @@ describe('--no-integrity-check forwards noIntegrityCheck=true to parseBundle', (
     expect(parseCall?.[1]?.noIntegrityCheck).toBe(false);
   });
 });
+
+describe('bundle.global.claudeJson is currently unapplied; user is warned', () => {
+  it('emits a stderr warning when bundle.global.claudeJson is present', async () => {
+    state.bundle = makeBundle({
+      global: {
+        memories: [{ filename: 'a.md', content: 'a' }],
+        claudeJson: { firstStartTime: '2026-01-01' },
+      },
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await run('/tmp/bundle.cmemmov', {});
+
+    const stderrText = stderrSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    expect(stderrText).toMatch(/\.claude\.json/);
+    stderrSpy.mockRestore();
+
+    // applyCategory was NOT called for any "claudeJson" category — that
+    // category does not exist on the writer surface.
+    const claudeJsonApplied = state.applyCalls.some(
+      (c) => (c.category as string) === 'claudeJson',
+    );
+    expect(claudeJsonApplied).toBe(false);
+  });
+
+  it('does NOT warn when bundle.global.claudeJson is absent', async () => {
+    state.bundle = makeBundle({
+      global: { memories: [{ filename: 'a.md', content: 'a' }] },
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await run('/tmp/bundle.cmemmov', {});
+
+    const stderrText = stderrSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    expect(stderrText).not.toMatch(/\.claude\.json/);
+    stderrSpy.mockRestore();
+  });
+});

@@ -1,6 +1,6 @@
 # Story 1.11: Import Command — Same-OS Happy Path
 
-Status: review
+Status: done
 
 ## Story
 
@@ -566,3 +566,21 @@ Issues / decisions:
 - AC10 (rollback intact after partial failure) has no explicit unit test; structurally guaranteed by absence of orchestration try/catch and authoritatively covered by Story 1.12's rollback E2E.
 
 **Verification:** `npm run check` after fixes — 24 test files, 313 tests, all green. ESLint + tsc clean.
+
+### Senior Developer Re-Review (2026-05-09)
+
+**Verdict:** Pass with one additional MEDIUM auto-fix. After the original review, a re-review pass through Blind Hunter / Edge Case Hunter / Acceptance Auditor lenses surfaced one additional MEDIUM finding tied to AC11 ("import processes paths in `.claude.json` global state fields → does NOT remap them") and three additional LOWs.
+
+**Auto-fixed (MEDIUM):**
+
+1. **`bundle.global.claudeJson` no longer drops silently on import.** AC11 implies `.claude.json` IS processed by import (just without path remapping in Epic 1). The bundle schema, the export pipeline (`export-selection.ts:159-160`), and the bundle round-trip all carry `claudeJson`, but `import.ts::applyGlobalCategories` had no branch for it and the writer surface (`ApplyCategoryOpts`) lacks a `claudeJson` category — so a same-OS export → import round-trip silently lost `~/.claude.json`. The structural gap (no writer category) spans `claude-writer.ts`, `decision-schema.ts`, and `import.ts`, and is too large to land in a code-review patch — it's deferred to a follow-up story. The visible UX hole has been closed: `applyGlobalCategories` now emits `out.warn(...)` when `bundle.global.claudeJson !== undefined`, telling the user the bundle had `.claude.json` content that this version of import skips. New regression tests cover both the present-and-warned and absent-and-not-warned branches.
+
+### Review Findings
+
+- [x] **Review / Patch** — Emit warning for unapplied `bundle.global.claudeJson` (`src/commands/import.ts:265`) — fixed in this pass; structural restoration deferred.
+- [x] **Review / Defer** — `bundle.global.claudeJson` writer surface gap (`src/services/claude-writer.ts`) — deferred, inherited from Stories 1.7-1.10. See `deferred-work.md`.
+- [x] **Review / Defer** — `g.teams !== undefined && isRecord(g.teams)` silent skip for non-record (`src/commands/import.ts:243`) — deferred, low impact. See `deferred-work.md`.
+- [x] **Review / Defer** — `parseMode('overwrite=')` trailing whitespace in error (`src/commands/import.ts:48`) — deferred, UX polish. See `deferred-work.md`.
+- [x] **Review / Defer** — No test coverage for `--json` mode forwarding (`src/commands/import.test.ts`) — deferred, paired with existing JSON polish defer. See `deferred-work.md`.
+
+**Verification (re-review):** `npm run check` — 27 test files, 337 tests pass, 2 skipped (was 335; 2 new tests for the claudeJson warning). ESLint + tsc clean. The integration perf test confirms the warning fires in real round-trips — its JSON output now contains `"warnings":["Bundle contains .claude.json content but import does not restore it yet (deferred). ~/.claude.json on this machine is unchanged."]` when an exported bundle includes `claudeJson`.

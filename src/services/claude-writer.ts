@@ -8,8 +8,6 @@ import {
   type CommandFile,
 } from './claude-reader.js';
 
-export type { ClaudeCategory } from '../core/decision-schema.js';
-
 type Mode = 'merge' | 'overwrite';
 
 interface GlobalMemoryOpts {

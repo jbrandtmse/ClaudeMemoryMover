@@ -1,6 +1,6 @@
 # Story 1.8: UI Layer — Output Formatter, Prompts Wrapper, Decision Schema
 
-Status: review
+Status: done
 
 ## Story
 
@@ -118,6 +118,11 @@ So that NFR14 (no silent failures), FR31 (silent mode parity), FR32 (`--json` ou
 - [x] **Review · Defer** — `Output.finish()` is not idempotent (no double-call guard) — deferred to `deferred-work.md` (LOW; no current consumer can trigger; revisit when first command wires up `Output` in Story 2.x)
 - [x] **Review · Defer** — `output.test.ts:166` `JSON.parse(raw)` throw assertion is value-fragile — deferred to `deferred-work.md` (LOW; works for current `'hi'` literal)
 - [x] **Review · Defer** — Unicode `⚠` may render as `?` on non-UTF-8 Windows terminals — deferred to `deferred-work.md` (LOW; cross-OS verification belongs in Story 1.13's matrix)
+
+### Re-review (cr-1-8 pass on 2026-05-09)
+
+- [x] **Review · Patch (MEDIUM)** — `src/services/claude-writer.ts:11` carried a dead `export type { ClaudeCategory } from '../core/decision-schema.js'` re-export. No consumer in `src/` imports `ClaudeCategory` from `claude-writer`; every consumer imports it directly from `core/decision-schema`. The dev's Completion Notes called this re-export a workaround for an "unused-import" lint, but a true unused import never existed because the file does not consume the type. Resolution: the line was deleted entirely; `npm run check` continues to pass (lint + typecheck + 335 tests). AC8's "ClaudeCategory is defined here (not in `claude-writer.ts`)" is now strictly enforced — `claude-writer.ts` no longer references the symbol at all.
+- [x] **Review · Defer (LOW)** — `selectProjects` (`src/ui/prompts.ts:83-93`) has no silent-mode parameter. Logged in `deferred-work.md` under the Story 1.8 section. No current consumer can trigger the gap; resolution path attached.
 
 ## Dev Notes
 
