@@ -461,6 +461,92 @@ describe('applyCategory — plugins', () => {
   });
 });
 
+describe('applyCategory — claudeJson', () => {
+  it('merge: deep-merges with existing .claude.json, preserves existing keys', async () => {
+    // .claude.json lives ADJACENT to claudeDir, not inside it. Path is
+    // derived as `${targetDir}.json` (locateClaude's formula).
+    const claudeJsonPath = `${claudeDir}.json`;
+    await writeFile(
+      claudeJsonPath,
+      JSON.stringify({
+        firstStartTime: '2026-01-01',
+        recentProjects: ['/old/proj'],
+        shared: 'old',
+      }),
+      'utf8',
+    );
+    const captured: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'merge',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: { recentProjects: ['/new/proj'], added: 'new', shared: 'incoming' },
+    });
+    const mergedRaw = getCapturedContent(captured, (p) => p === claudeJsonPath);
+    const merged = JSON.parse(mergedRaw) as Record<string, unknown>;
+    expect(merged.firstStartTime).toBe('2026-01-01');
+    expect(merged.added).toBe('new');
+    // deepMerge precedence: source (incoming) wins on scalar collisions.
+    expect(merged.shared).toBe('incoming');
+    // Arrays are unioned (de-duped) by deepMerge.
+    expect(merged.recentProjects).toEqual(
+      expect.arrayContaining(['/old/proj', '/new/proj']),
+    );
+    // Cleanup the file we wrote outside claudeDir tmp.
+    await rm(claudeJsonPath, { force: true });
+  });
+
+  it('overwrite: replaces .claude.json wholesale', async () => {
+    const claudeJsonPath = `${claudeDir}.json`;
+    await writeFile(
+      claudeJsonPath,
+      JSON.stringify({ firstStartTime: 'stale', recentProjects: ['/a'] }),
+      'utf8',
+    );
+    const captured: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: { firstStartTime: 'fresh', currentProject: '/x' },
+    });
+    const writtenRaw = getCapturedContent(captured, (p) => p === claudeJsonPath);
+    const written = JSON.parse(writtenRaw) as Record<string, unknown>;
+    expect(written).toEqual({ firstStartTime: 'fresh', currentProject: '/x' });
+    expect(written.recentProjects).toBeUndefined();
+    await rm(claudeJsonPath, { force: true });
+  });
+
+  it('missing .claude.json (ENOENT): writes incoming data in both modes', async () => {
+    const claudeJsonPath = `${claudeDir}.json`;
+    // No file pre-existing on disk.
+
+    const capturedMerge: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'merge',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(capturedMerge),
+      data: { firstStartTime: 'first' },
+    });
+    const mergeRaw = getCapturedContent(capturedMerge, (p) => p === claudeJsonPath);
+    expect(JSON.parse(mergeRaw)).toEqual({ firstStartTime: 'first' });
+
+    const capturedOver: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(capturedOver),
+      data: { firstStartTime: 'over' },
+    });
+    const overRaw = getCapturedContent(capturedOver, (p) => p === claudeJsonPath);
+    expect(JSON.parse(overRaw)).toEqual({ firstStartTime: 'over' });
+  });
+});
+
 describe('applyCategory — fresh-install parent-dir creation', () => {
   it('claudeMd merge with slug: creates project parent dir before writing CLAUDE.md', async () => {
     const slug = '-home-user-newproj';

@@ -178,6 +178,7 @@ async function resolveProjects(
 async function applyGlobalCategories(
   bundle: import('../core/bundle-schema.js').Bundle,
   claudeDir: string,
+  claudeJsonPath: string,
   gate: WriteGate,
   decision: ImportDecision,
   out: Output,
@@ -262,12 +263,26 @@ async function applyGlobalCategories(
     out.progress('Applied plugins');
     count++;
   }
-  // bundle.global.claudeJson is preserved in the bundle schema (export-side
-  // captures it) but the writer surface has no claudeJson category yet — see
-  // deferred-work.md "claudeJson restore on import". Warn so users running a
-  // round-trip on the same OS know ~/.claude.json is not being touched.
   if (g.claudeJson !== undefined) {
-    out.warn('Bundle contains .claude.json content but import does not restore it yet (deferred). ~/.claude.json on this machine is unchanged.');
+    // The writer derives the on-disk path as `${targetDir}.json`, which by
+    // construction equals locateClaude().claudeJson — assert that invariant
+    // so any future drift in the locator's path formula trips a clear error
+    // here rather than silently writing to the wrong file.
+    if (claudeJsonPath !== `${claudeDir}.json`) {
+      throw new CmemmovError({
+        code: 'INTERNAL',
+        hint: `claudeJson path '${claudeJsonPath}' does not match expected '${claudeDir}.json'`,
+      });
+    }
+    await applyCategory({
+      category: 'claudeJson',
+      mode: effectiveMode('claudeJson', decision),
+      targetDir: claudeDir,
+      data: g.claudeJson,
+      gate,
+    });
+    out.progress('Applied claudeJson');
+    count++;
   }
   return count;
 }
@@ -338,7 +353,7 @@ export async function run(bundlePath: string, opts: ImportOpts = {}): Promise<vo
   const decision = buildDecision(bundlePath, opts);
   const out = new Output('import', { json: decision.json });
 
-  const { claudeDir } = locateClaude();
+  const { claudeDir, claudeJson: claudeJsonPath } = locateClaude();
 
   out.progress(`Reading bundle from ${decision.bundlePath}...`);
   const bytes = await readFile(decision.bundlePath);
@@ -375,7 +390,14 @@ export async function run(bundlePath: string, opts: ImportOpts = {}): Promise<vo
     out,
   );
 
-  const globalCount = await applyGlobalCategories(bundle, claudeDir, gate, decision, out);
+  const globalCount = await applyGlobalCategories(
+    bundle,
+    claudeDir,
+    claudeJsonPath,
+    gate,
+    decision,
+    out,
+  );
   const projectCount = await applyProjectCategories(
     bundle,
     resolved,

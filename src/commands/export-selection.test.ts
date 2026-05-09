@@ -8,6 +8,8 @@ import {
 import { CmemmovError } from '../core/error.js';
 import { ALL_CATEGORIES } from '../core/decision-schema.js';
 import { BUNDLE_FORMAT_VERSION } from '../core/bundle-schema.js';
+import { serializeBundle } from '../services/bundle-serializer.js';
+import { parseBundle } from '../services/bundle-parser.js';
 import type { ClaudeSurface, ProjectSurface } from '../services/claude-reader.js';
 
 function makeSurface(overrides: Partial<ClaudeSurface> = {}): ClaudeSurface {
@@ -341,6 +343,34 @@ describe('buildBundle', () => {
     });
     expect(bundle.global.claudeMd).toBe('global content');
     expect(bundle.projects[0]?.claudeMd).toBe('project content');
+  });
+
+  it('round-trips a multi-key global through serialize → parse without checksum mismatch', () => {
+    // Regression: buildBundle previously assigned global keys in
+    // category-include order, so the canonical author bytes diverged from
+    // the schema-declaration order Zod produces on parseBundle, causing
+    // BUNDLE_CHECKSUM_MISMATCH for any global with multiple optional keys.
+    // The fix normalizes via BundleSchema.parse before returning.
+    const surface = makeSurface({
+      globalSettings: { model: 'sonnet' },
+      globalMemory: [{ filename: 'a.md', content: '# A\n\nbody\n' }],
+      claudeJson: { firstStartTime: '2026-01-01' },
+    });
+    const bundle = buildBundle({
+      surface,
+      categories: ['globalSettings', 'globalMemory'],
+      includeCredentials: false,
+      selectedSlugs: [],
+      projectOriginalPaths: new Map(),
+      claudeVersion: '2.1.133',
+      credentialsContent: undefined,
+    });
+    expect(bundle.global.settings).toBeDefined();
+    expect(bundle.global.memories).toHaveLength(1);
+    expect(bundle.global.claudeJson).toBeDefined();
+
+    const bytes = serializeBundle(bundle);
+    expect(() => parseBundle(bytes)).not.toThrow();
   });
 
   it('customCommands and teams and plugins populate only when categories selected', () => {

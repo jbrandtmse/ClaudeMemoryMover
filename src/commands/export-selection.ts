@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import process from 'node:process';
 import {
+  BundleSchema,
   type Bundle,
   type Global,
   type Project,
@@ -175,5 +176,8 @@ export function buildBundle(opts: BuildBundleOpts): Bundle {
     bundle.credentials = { content: opts.credentialsContent ?? null, wasRedacted: false };
   }
 
-  return bundle;
+  // Normalize key order to schema-declaration order so the integrity hash
+  // computed in serializeBundle matches the bytes parseBundle reconstructs
+  // (Zod's parse() iterates schema keys in declaration order).
+  return BundleSchema.parse(bundle);
 }

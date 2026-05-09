@@ -597,8 +597,8 @@ describe('--no-integrity-check forwards noIntegrityCheck=true to parseBundle', (
   });
 });
 
-describe('bundle.global.claudeJson is currently unapplied; user is warned', () => {
-  it('emits a stderr warning when bundle.global.claudeJson is present', async () => {
+describe('bundle.global.claudeJson is applied via writer surface', () => {
+  it('claudeJson present → applyCategory called with category=claudeJson, no warn', async () => {
     state.bundle = makeBundle({
       global: {
         memories: [{ filename: 'a.md', content: 'a' }],
@@ -612,18 +612,24 @@ describe('bundle.global.claudeJson is currently unapplied; user is warned', () =
     const stderrText = stderrSpy.mock.calls
       .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
       .join('');
-    expect(stderrText).toMatch(/\.claude\.json/);
+    // No deferred-warning about ~/.claude.json should be emitted now that
+    // import actually applies it.
+    expect(stderrText).not.toMatch(/does not restore it yet/);
     stderrSpy.mockRestore();
 
-    // applyCategory was NOT called for any "claudeJson" category — that
-    // category does not exist on the writer surface.
-    const claudeJsonApplied = state.applyCalls.some(
-      (c) => (c.category as string) === 'claudeJson',
+    const claudeJsonCall = state.applyCalls.find(
+      (c): c is Extract<ApplyCategoryOpts, { category: 'claudeJson' }> =>
+        c.category === 'claudeJson',
     );
-    expect(claudeJsonApplied).toBe(false);
+    expect(claudeJsonCall).toBeDefined();
+    // The writer derives the on-disk path as `${targetDir}.json`, which must
+    // match locateClaude().claudeJson — verify the locator's output is the
+    // path we'd write to.
+    expect(`${claudeJsonCall?.targetDir ?? ''}.json`).toBe('/home/u/.claude.json');
+    expect(claudeJsonCall?.data).toEqual({ firstStartTime: '2026-01-01' });
   });
 
-  it('does NOT warn when bundle.global.claudeJson is absent', async () => {
+  it('claudeJson absent → applyCategory NOT called for claudeJson, no warn', async () => {
     state.bundle = makeBundle({
       global: { memories: [{ filename: 'a.md', content: 'a' }] },
     });
@@ -636,5 +642,10 @@ describe('bundle.global.claudeJson is currently unapplied; user is warned', () =
       .join('');
     expect(stderrText).not.toMatch(/\.claude\.json/);
     stderrSpy.mockRestore();
+
+    const claudeJsonApplied = state.applyCalls.some(
+      (c) => c.category === 'claudeJson',
+    );
+    expect(claudeJsonApplied).toBe(false);
   });
 });

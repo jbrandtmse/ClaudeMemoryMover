@@ -85,14 +85,10 @@ describe.skipIf(!LARGE_PERF_ENABLED)(
         const { run: importRun } = await import('../../src/commands/import.js');
 
         const start = performance.now();
-        // integrityCheck: false sidesteps a pre-existing canonical-key-order
-        // mismatch between buildBundle and BundleSchema.parse — out of scope
-        // for the CI matrix story; integrity is covered by bundle-parser tests.
         await importRun(bundlePath, {
           mode: 'overwrite',
           silent: true,
           json: true,
-          integrityCheck: false,
         });
         const elapsed = performance.now() - start;
 

@@ -139,15 +139,10 @@ describe('export + import perf — 20 projects, no sessions (NFR2)', () => {
       const { run: importRun } = await import('../../src/commands/import.js');
 
       const start = performance.now();
-      // integrityCheck: false sidesteps a pre-existing canonical-key-order
-      // bug between buildBundle and BundleSchema.parse — a real bug, but out
-      // of scope for the CI matrix story; integrity is covered by
-      // src/services/bundle-parser.test.ts.
       await importRun(bundlePath, {
         mode: 'overwrite',
         silent: true,
         json: true,
-        integrityCheck: false,
       });
       const elapsed = performance.now() - start;
 

@@ -80,6 +80,15 @@ interface SessionHistoryOpts {
   data: { slug: string; files: SessionFile[] };
   gate: WriteGate;
 }
+interface ClaudeJsonOpts {
+  category: 'claudeJson';
+  mode: Mode;
+  // .claude dir; the on-disk path for ~/.claude.json is derived as
+  // `${targetDir}.json` to mirror locateClaude()'s formula.
+  targetDir: string;
+  data: unknown;
+  gate: WriteGate;
+}
 
 export type ApplyCategoryOpts =
   | GlobalMemoryOpts
@@ -91,7 +100,8 @@ export type ApplyCategoryOpts =
   | CustomCommandsOpts
   | TeamsOpts
   | PluginsOpts
-  | SessionHistoryOpts;
+  | SessionHistoryOpts
+  | ClaudeJsonOpts;
 
 function assertNever(x: never): never {
   throw new Error(`Unhandled category: ${(x as ApplyCategoryOpts).category}`);
@@ -119,6 +129,8 @@ export async function applyCategory(opts: ApplyCategoryOpts): Promise<void> {
       return applyPlugins(opts);
     case 'sessionHistory':
       return applySessionHistory(opts);
+    case 'claudeJson':
+      return applyClaudeJson(opts);
     default:
       return assertNever(opts);
   }
@@ -327,6 +339,16 @@ async function applyGlobalSettings(opts: GlobalSettingsOpts): Promise<void> {
 async function applyProjectSettings(opts: ProjectSettingsOpts): Promise<void> {
   const filePath = join(opts.targetDir, 'projects', opts.data.slug, 'settings.json');
   await applySettingsAt(filePath, opts.data.settings, opts.mode, opts.gate);
+}
+
+// ---------------------------------------------------------------------------
+// claudeJson  (~/.claude.json — adjacent to ~/.claude/, not inside it)
+// ---------------------------------------------------------------------------
+
+async function applyClaudeJson(opts: ClaudeJsonOpts): Promise<void> {
+  // Mirrors locateClaude()'s formula: ~/.claude → ~/.claude.json.
+  const filePath = `${opts.targetDir}.json`;
+  await applySettingsAt(filePath, opts.data, opts.mode, opts.gate);
 }
 
 // ---------------------------------------------------------------------------

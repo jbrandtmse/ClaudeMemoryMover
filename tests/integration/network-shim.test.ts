@@ -222,16 +222,10 @@ describe('network isolation: top-level commands (NFR7 / DC8)', () => {
 
     networkAttempts.entries = [];
     const { run: importRun } = await import('../../src/commands/import.js');
-    // integrityCheck: false works around an existing canonical-key-order
-    // mismatch between buildBundle's manual key order and Zod's schema-defined
-    // order on parse. The integrity check is verified end-to-end by
-    // bundle-parser.test.ts and bundle-serializer.test.ts; this test's
-    // sole purpose is NFR7 (no network), not bundle integrity.
     await importRun(outputPath, {
       mode: 'merge',
       silent: true,
       json: true,
-      integrityCheck: false,
     });
 
     expect(networkAttempts.entries).toEqual([]);
@@ -254,7 +248,6 @@ describe('network isolation: top-level commands (NFR7 / DC8)', () => {
       mode: 'merge',
       silent: true,
       json: true,
-      integrityCheck: false,
     });
 
     networkAttempts.entries = [];

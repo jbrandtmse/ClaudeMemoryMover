@@ -8,7 +8,11 @@ export type ClaudeCategory =
   | 'customCommands'
   | 'teams'
   | 'plugins'
-  | 'sessionHistory';
+  | 'sessionHistory'
+  // claudeJson is exported unconditionally (not user-selectable) and has no
+  // entry in ALL_CATEGORIES — it lives in the union solely for writer-side
+  // type safety in the applyCategory discriminated union.
+  | 'claudeJson';
 
 export const ALL_CATEGORIES: readonly ClaudeCategory[] = [
   'globalMemory',

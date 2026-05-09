@@ -1,5 +1,5 @@
 # generated: 2026-05-09
-# last_updated: 2026-05-09 (story 1-13 → done)
+# last_updated: 2026-05-09 (story 2-0 ready-for-dev → in-progress → review → done)
 # (story 1-3 moved ready-for-dev → in-progress → review on 2026-05-09)
 # (story 1-4 moved ready-for-dev → in-progress → review on 2026-05-09)
 # (story 1-5 moved ready-for-dev → in-progress → review on 2026-05-09)
@@ -48,6 +48,7 @@
 generated: 2026-05-09
 last_updated: 2026-05-09
 project: ClaudeMemoryMover
+
 project_key: NOKEY
 tracking_system: file-system
 story_location: "{project-root}/_bmad-output/implementation-artifacts"
@@ -71,7 +72,8 @@ development_status:
   epic-1-retrospective: done
 
   # Epic 2: Cross-OS Migration & Path Intelligence (Maya's Journey)
-  epic-2: backlog
+  epic-2: in-progress
+  2-0-epic-1-deferred-cleanup: done
   2-1-path-engine-cross-os-conversion-auto-suggest: backlog
   2-2-cross-os-detection-guided-per-project-remap-ui: backlog
   2-3-settings-json-and-claude-json-path-remapping: backlog
