@@ -1,0 +1,91 @@
+# generated: 2026-05-09
+# last_updated: 2026-05-09
+# project: ClaudeMemoryMover
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: {project-root}/_bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-05-09
+last_updated: 2026-05-09
+project: ClaudeMemoryMover
+project_key: NOKEY
+tracking_system: file-system
+story_location: "{project-root}/_bmad-output/implementation-artifacts"
+
+development_status:
+  # Epic 1: Foundation & Same-OS Migration (Alex's Journey)
+  epic-1: backlog
+  1-1-repository-initialization-build-toolchain: backlog
+  1-2-local-eslint-plugin-architectural-invariant-rules: backlog
+  1-3-path-engine-slug-codec-same-os-path-resolution: backlog
+  1-4-core-models-bundle-schema-error-sanitization-rules: backlog
+  1-5-filesystem-discipline-writegate-backup-service: backlog
+  1-6-bundle-io-parser-serializer: backlog
+  1-7-claude-code-surface-locator-reader-writer: backlog
+  1-8-ui-layer-output-formatter-prompts-wrapper-decision-schema: backlog
+  1-9-cli-shell-cmemmov-entry-point-command-dispatch: backlog
+  1-10-export-command: backlog
+  1-11-import-command-same-os-happy-path: backlog
+  1-12-rollback-command: backlog
+  1-13-ci-matrix-3-os-test-pipeline: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Cross-OS Migration & Path Intelligence (Maya's Journey)
+  epic-2: backlog
+  2-1-path-engine-cross-os-conversion-auto-suggest: backlog
+  2-2-cross-os-detection-guided-per-project-remap-ui: backlog
+  2-3-settings-json-and-claude-json-path-remapping: backlog
+  2-4-cross-os-integration-tests: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Path Repair Standalone Command (Jordan's Journey)
+  epic-3: backlog
+  3-1-project-inventory-slug-decode-scan: backlog
+  3-2-auto-suggestion-interactive-remap-flow: backlog
+  3-3-apply-renames-update-claude-json-backup: backlog
+  3-4-fix-paths-integration-tests: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Team Sharing & Sanitization (Taylor's Journey)
+  epic-4: backlog
+  4-1-strip-personal-sanitization-profile: backlog
+  4-2-share-command-implementation: backlog
+  4-3-share-and-team-bundle-round-trip-integration-tests: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Distribution, Shell Completion & Release Polish
+  epic-5: backlog
+  5-1-shell-completion-command: backlog
+  5-2-node-sea-binary-builds-for-four-platforms: backlog
+  5-3-tag-triggered-release-pipeline: backlog
+  5-4-documentation-deliverables: backlog
+  epic-5-retrospective: optional
