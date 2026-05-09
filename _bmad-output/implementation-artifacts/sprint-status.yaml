@@ -2,6 +2,7 @@
 # last_updated: 2026-05-09
 # (story 1-3 moved ready-for-dev → in-progress → review on 2026-05-09)
 # (story 1-4 moved ready-for-dev → in-progress → review on 2026-05-09)
+# (story 1-5 moved ready-for-dev → in-progress → review on 2026-05-09)
 # project: ClaudeMemoryMover
 # project_key: NOKEY
 # tracking_system: file-system
@@ -50,7 +51,7 @@ development_status:
   1-2-local-eslint-plugin-architectural-invariant-rules: done
   1-3-path-engine-slug-codec-same-os-path-resolution: done
   1-4-core-models-bundle-schema-error-sanitization-rules: done
-  1-5-filesystem-discipline-writegate-backup-service: backlog
+  1-5-filesystem-discipline-writegate-backup-service: done
   1-6-bundle-io-parser-serializer: backlog
   1-7-claude-code-surface-locator-reader-writer: backlog
   1-8-ui-layer-output-formatter-prompts-wrapper-decision-schema: backlog

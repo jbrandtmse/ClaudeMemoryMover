@@ -23,6 +23,40 @@ export default tseslint.config(
     },
   },
   {
+    files: ['src/**/*.ts'],
+    ignores: [
+      'src/services/write-gate.ts',
+      'src/services/backup-service.ts',
+      'src/**/*.test.ts',
+    ],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [
+          {
+            name: 'node:fs/promises',
+            importNames: ['writeFile', 'rename', 'unlink', 'copyFile', 'rmdir', 'rm'],
+            message: 'Direct fs write ops must go through WriteGate (src/services/write-gate.ts).',
+          },
+          {
+            name: 'fs/promises',
+            importNames: ['writeFile', 'rename', 'unlink', 'copyFile', 'rmdir', 'rm'],
+            message: 'Direct fs write ops must go through WriteGate (src/services/write-gate.ts).',
+          },
+          {
+            name: 'node:fs',
+            importNames: ['writeFileSync', 'renameSync', 'unlinkSync', 'copyFileSync', 'rmdirSync', 'rmSync'],
+            message: 'Direct fs write ops must go through WriteGate (src/services/write-gate.ts).',
+          },
+          {
+            name: 'fs',
+            importNames: ['writeFileSync', 'renameSync', 'unlinkSync', 'copyFileSync', 'rmdirSync', 'rmSync'],
+            message: 'Direct fs write ops must go through WriteGate (src/services/write-gate.ts).',
+          },
+        ],
+      }],
+    },
+  },
+  {
     files: ['**/*.{js,cjs,mjs}'],
     ...tseslint.configs.disableTypeChecked,
   },
