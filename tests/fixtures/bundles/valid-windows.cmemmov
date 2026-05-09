@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "exportedAt": "2026-05-09T12:00:00.000Z",
+  "sourcePlatform": "win32",
+  "claudeVersion": "2.1.133",
+  "hasCredentials": false,
+  "projects": [
+    {
+      "slug": "C--Users-Josh-myapp",
+      "originalPath": "C:\\Users\\Josh\\myapp",
+      "memories": [
+        {
+          "filename": "MEMORY.md",
+          "content": "# Memory Index\n"
+        }
+      ]
+    }
+  ],
+  "global": {},
+  "integrity": "11453073f1a2ff49097741cb51c70cfd420c687651f8e115c1787864297b4557"
+}

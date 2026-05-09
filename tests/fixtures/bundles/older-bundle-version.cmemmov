@@ -1,0 +1,15 @@
+{
+  "version": "0.9.0",
+  "exportedAt": "2026-05-09T12:00:00.000Z",
+  "sourcePlatform": "linux",
+  "claudeVersion": "2.1.133",
+  "hasCredentials": false,
+  "projects": [
+    {
+      "slug": "-home-user-myapp",
+      "originalPath": "/home/user/myapp"
+    }
+  ],
+  "global": {},
+  "integrity": "9bd6596993f73b2d7c3343d1260201039b2944e4c08fe8f750ae115385aedf0f"
+}

@@ -11,6 +11,9 @@ export default defineConfig({
           lines: 100,
           branches: 100,
         },
+        'src/services/bundle-parser.ts': {
+          lines: 100,
+        },
       },
     },
   },
