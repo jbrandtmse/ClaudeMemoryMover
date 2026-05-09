@@ -5,6 +5,7 @@ import {
   findMatchingDir,
   isCrossPlatformMigration,
   suggestRemap,
+  remapByDecisions,
 } from './path-engine.js';
 import fixtures from '../../tests/fixtures/slug-edge-cases.json' with { type: 'json' };
 import remapFixtures from '../../tests/fixtures/cross-os-remap-cases.json' with { type: 'json' };
@@ -200,6 +201,87 @@ describe('path-engine', () => {
       expect(suggestRemap('c:\\Users\\Josh\\dev\\app', 'darwin', '/Users/josh')).toBe(
         '/Users/josh/dev/app',
       );
+    });
+  });
+
+  describe('remapByDecisions', () => {
+    it('returns null when decisions are empty', () => {
+      expect(remapByDecisions('/old/host/proj', [])).toBeNull();
+    });
+
+    it('returns null when no decision matches the input path', () => {
+      expect(
+        remapByDecisions('/totally/other/place', [
+          { originalPath: '/old/host', targetPath: '/home/u/dev' },
+        ]),
+      ).toBeNull();
+    });
+
+    it('matches an exact prefix (input equals originalPath)', () => {
+      expect(
+        remapByDecisions('/old/host', [
+          { originalPath: '/old/host', targetPath: '/home/u/dev' },
+        ]),
+      ).toBe('/home/u/dev');
+    });
+
+    it('matches a POSIX-prefix path with a trailing subpath', () => {
+      expect(
+        remapByDecisions('/old/host/proj-a/sub', [
+          { originalPath: '/old/host', targetPath: '/home/u/dev' },
+        ]),
+      ).toBe('/home/u/dev/proj-a/sub');
+    });
+
+    it('does NOT match a sibling path (sibling-prefix gap closed)', () => {
+      // /home/maya2 must not match prefix /home/maya
+      expect(
+        remapByDecisions('/home/maya2/code', [
+          { originalPath: '/home/maya', targetPath: '/Users/maya' },
+        ]),
+      ).toBeNull();
+    });
+
+    it('selects the longest matching prefix when multiple decisions both match', () => {
+      const result = remapByDecisions('/home/u/dev/agents/foo', [
+        { originalPath: '/home/u', targetPath: '/Users/u' },
+        { originalPath: '/home/u/dev', targetPath: '/Users/u/work' },
+      ]);
+      expect(result).toBe('/Users/u/work/agents/foo');
+    });
+
+    it('skips decisions whose targetPath is null (skipped projects)', () => {
+      const result = remapByDecisions('/old/host/proj-a', [
+        { originalPath: '/old/host', targetPath: null },
+        { originalPath: '/old', targetPath: '/new' },
+      ]);
+      expect(result).toBe('/new/host/proj-a');
+    });
+
+    it('normalizes win32-style suffix separators to POSIX when target is POSIX', () => {
+      // win32-source path remapped to POSIX target — the trailing `\sub\**` must
+      // become `/sub/**` so the result is a valid POSIX path.
+      expect(
+        remapByDecisions('C:\\agents\\sub\\**', [
+          { originalPath: 'C:\\agents', targetPath: '/Users/maya/agents' },
+        ]),
+      ).toBe('/Users/maya/agents/sub/**');
+    });
+
+    it('normalizes POSIX suffix separators to win32 when target is win32', () => {
+      expect(
+        remapByDecisions('/old/host/sub/**', [
+          { originalPath: '/old/host', targetPath: 'C:\\Users\\Josh' },
+        ]),
+      ).toBe('C:\\Users\\Josh\\sub\\**');
+    });
+
+    it('preserves glob characters (`**`, `*`, `?`) verbatim in the suffix', () => {
+      expect(
+        remapByDecisions('/old/host/projects/**/*.ts', [
+          { originalPath: '/old/host', targetPath: '/home/u/dev' },
+        ]),
+      ).toBe('/home/u/dev/projects/**/*.ts');
     });
   });
 });

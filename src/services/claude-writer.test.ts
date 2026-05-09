@@ -547,6 +547,419 @@ describe('applyCategory — claudeJson', () => {
   });
 });
 
+describe('applyCategory — globalSettings remap (Story 2.3)', () => {
+  it('rewrites Verb(path) permission rules using longest-prefix match', async () => {
+    const captured: { path: string; content: string }[] = [];
+    const warnings: string[] = [];
+    const infos: string[] = [];
+    await applyCategory({
+      category: 'globalSettings',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        permissions: [
+          'Read(C:\\agents\\**)',
+          'Write(C:\\Users\\maya\\projects\\**)',
+        ],
+      },
+      remapDecisions: [
+        { originalPath: 'C:\\agents', targetPath: '/Users/maya/agents' },
+        { originalPath: 'C:\\Users\\maya\\projects', targetPath: '/Users/maya/projects' },
+      ],
+      warn: (m): void => {
+        warnings.push(m);
+      },
+      info: (m): void => {
+        infos.push(m);
+      },
+    });
+    const raw = getCapturedContent(captured, (p) => p.endsWith('settings.json'));
+    const written = JSON.parse(raw) as { permissions: string[] };
+    expect(written.permissions).toEqual([
+      'Read(/Users/maya/agents/**)',
+      'Write(/Users/maya/projects/**)',
+    ]);
+    // Successful remappings route through `info`, not `warn` — `summary.warnings`
+    // (AC #10) must list unmatched paths only.
+    expect(infos.some((m) => m.includes('Remapped global settings.json permission'))).toBe(true);
+    expect(warnings).toEqual([]);
+  });
+
+  it('rewrites permissions in the real-world {allow, deny} nested-array shape', async () => {
+    const captured: { path: string; content: string }[] = [];
+    const warnings: string[] = [];
+    const infos: string[] = [];
+    await applyCategory({
+      category: 'globalSettings',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        permissions: {
+          allow: ['Read(C:\\agents\\**)', 'Bash(npm:*)'],
+          deny: ['Write(C:\\Users\\maya\\secrets\\*)'],
+          ask: ['Read(C:\\agents\\private\\*)'],
+        },
+      },
+      remapDecisions: [
+        { originalPath: 'C:\\agents', targetPath: '/Users/maya/agents' },
+        { originalPath: 'C:\\Users\\maya\\secrets', targetPath: '/Users/maya/secrets' },
+      ],
+      warn: (m): void => {
+        warnings.push(m);
+      },
+      info: (m): void => {
+        infos.push(m);
+      },
+    });
+    const raw = getCapturedContent(captured, (p) => p.endsWith('settings.json'));
+    const written = JSON.parse(raw) as {
+      permissions: { allow: string[]; deny: string[]; ask: string[] };
+    };
+    expect(written.permissions.allow).toEqual([
+      'Read(/Users/maya/agents/**)',
+      'Bash(npm:*)', // No path → no match → unchanged (warn fires for it)
+    ]);
+    expect(written.permissions.deny).toEqual(['Write(/Users/maya/secrets/*)']);
+    expect(written.permissions.ask).toEqual(['Read(/Users/maya/agents/private/*)']);
+    expect(infos.some((m) => m.includes('Remapped'))).toBe(true);
+    expect(warnings.some((w) => w.includes('Bash(npm:*)') || w.includes('No remap rule matched'))).toBe(true);
+  });
+
+  it('preserves unknown permission sub-fields when permissions is the nested form', async () => {
+    const captured: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'globalSettings',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        permissions: {
+          allow: ['Read(C:\\agents\\**)'],
+          // Unknown sibling field — must pass through verbatim.
+          additionalConfig: { defaultMode: 'plan' },
+        },
+      },
+      remapDecisions: [
+        { originalPath: 'C:\\agents', targetPath: '/Users/maya/agents' },
+      ],
+    });
+    const raw = getCapturedContent(captured, (p) => p.endsWith('settings.json'));
+    const written = JSON.parse(raw) as {
+      permissions: { allow: string[]; additionalConfig: unknown };
+    };
+    expect(written.permissions.allow).toEqual(['Read(/Users/maya/agents/**)']);
+    expect(written.permissions.additionalConfig).toEqual({ defaultMode: 'plan' });
+  });
+
+  it('emits warning and passes through when no decision matches a permission rule', async () => {
+    const captured: { path: string; content: string }[] = [];
+    const warnings: string[] = [];
+    await applyCategory({
+      category: 'globalSettings',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: { permissions: ['Read(/no/match/here)'] },
+      remapDecisions: [
+        { originalPath: 'C:\\agents', targetPath: '/Users/maya/agents' },
+      ],
+      warn: (m): void => {
+        warnings.push(m);
+      },
+    });
+    const raw = getCapturedContent(captured, (p) => p.endsWith('settings.json'));
+    const written = JSON.parse(raw) as { permissions: string[] };
+    expect(written.permissions).toEqual(['Read(/no/match/here)']);
+    expect(warnings.some((w) => w.includes('No remap rule matched'))).toBe(true);
+  });
+
+  it('preserves glob characters in the suffix when remapping', async () => {
+    const captured: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'globalSettings',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: { permissions: ['Write(C:\\agents\\**\\*.ts)'] },
+      remapDecisions: [
+        { originalPath: 'C:\\agents', targetPath: '/Users/maya/agents' },
+      ],
+    });
+    const raw = getCapturedContent(captured, (p) => p.endsWith('settings.json'));
+    const written = JSON.parse(raw) as { permissions: string[] };
+    expect(written.permissions).toEqual(['Write(/Users/maya/agents/**/*.ts)']);
+  });
+
+  it('non-permission settings fields and non-permission objects pass through untouched', async () => {
+    const captured: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'globalSettings',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: { theme: 'dark', model: 'sonnet' },
+      remapDecisions: [
+        { originalPath: 'C:\\agents', targetPath: '/Users/maya/agents' },
+      ],
+    });
+    const raw = getCapturedContent(captured, (p) => p.endsWith('settings.json'));
+    const written = JSON.parse(raw) as Record<string, unknown>;
+    expect(written).toEqual({ theme: 'dark', model: 'sonnet' });
+  });
+
+  it('passes a malformed permission entry through without warning (defensive)', async () => {
+    const captured: { path: string; content: string }[] = [];
+    const warnings: string[] = [];
+    await applyCategory({
+      category: 'globalSettings',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        permissions: [
+          'NotAVerbFormat',
+          { not: 'a string' },
+          'Read(C:\\agents\\foo)',
+        ],
+      },
+      remapDecisions: [
+        { originalPath: 'C:\\agents', targetPath: '/Users/maya/agents' },
+      ],
+      warn: (m): void => {
+        warnings.push(m);
+      },
+    });
+    const raw = getCapturedContent(captured, (p) => p.endsWith('settings.json'));
+    const written = JSON.parse(raw) as { permissions: unknown[] };
+    expect(written.permissions[0]).toBe('NotAVerbFormat');
+    expect(written.permissions[1]).toEqual({ not: 'a string' });
+    expect(written.permissions[2]).toBe('Read(/Users/maya/agents/foo)');
+    // No warning emitted for the unrecognized rule formats.
+    expect(warnings.filter((w) => w.includes('NotAVerbFormat'))).toHaveLength(0);
+  });
+
+  it('empty remapDecisions ([]) — same-OS pass-through, settings written verbatim with no warnings', async () => {
+    const captured: { path: string; content: string }[] = [];
+    const warnings: string[] = [];
+    await applyCategory({
+      category: 'globalSettings',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: { permissions: ['Read(C:\\agents\\**)'] },
+      remapDecisions: [],
+      warn: (m): void => {
+        warnings.push(m);
+      },
+    });
+    const raw = getCapturedContent(captured, (p) => p.endsWith('settings.json'));
+    const written = JSON.parse(raw) as { permissions: string[] };
+    expect(written.permissions).toEqual(['Read(C:\\agents\\**)']);
+    expect(warnings).toEqual([]);
+  });
+
+  it('projectSettings — same per-project rule rewriting via remapDecisions', async () => {
+    const captured: { path: string; content: string }[] = [];
+    const slug = '-old-host-projects-myapp';
+    await applyCategory({
+      category: 'projectSettings',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        slug,
+        settings: { permissions: ['Read(/old/host/projects/myapp/**)'] },
+      },
+      remapDecisions: [
+        { originalPath: '/old/host/projects/myapp', targetPath: '/home/u/dev/myapp' },
+      ],
+    });
+    const raw = getCapturedContent(
+      captured,
+      (p) => p.includes(slug) && p.endsWith('settings.json'),
+    );
+    const written = JSON.parse(raw) as { permissions: string[] };
+    expect(written.permissions).toEqual(['Read(/home/u/dev/myapp/**)']);
+  });
+});
+
+describe('applyCategory — claudeJson remap (Story 2.3)', () => {
+  it('remaps recognized path fields (lastSessionCwd, currentProject)', async () => {
+    const claudeJsonPath = `${claudeDir}.json`;
+    const captured: { path: string; content: string }[] = [];
+    const warnings: string[] = [];
+    const infos: string[] = [];
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        lastSessionCwd: '/old/host/proj-a',
+        currentProject: '/old/host/proj-b',
+        theme: 'dark', // pass-through
+      },
+      remapDecisions: [
+        { originalPath: '/old/host', targetPath: '/home/u/dev' },
+      ],
+      warn: (m): void => {
+        warnings.push(m);
+      },
+      info: (m): void => {
+        infos.push(m);
+      },
+    });
+    const raw = getCapturedContent(captured, (p) => p === claudeJsonPath);
+    const written = JSON.parse(raw) as Record<string, unknown>;
+    expect(written.lastSessionCwd).toBe('/home/u/dev/proj-a');
+    expect(written.currentProject).toBe('/home/u/dev/proj-b');
+    expect(written.theme).toBe('dark');
+    // Successful remappings route through `info`, not `warn`.
+    expect(infos.some((m) => m.includes('Remapped .claude.json lastSessionCwd'))).toBe(true);
+    expect(infos.some((m) => m.includes('Remapped .claude.json currentProject'))).toBe(true);
+    expect(warnings).toEqual([]);
+  });
+
+  it('remaps recentProjects[].path entries', async () => {
+    const claudeJsonPath = `${claudeDir}.json`;
+    const captured: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        recentProjects: [
+          { path: '/old/host/p1', lastOpened: '2026-01-01' },
+          { path: '/old/host/p2', lastOpened: '2026-01-02' },
+        ],
+      },
+      remapDecisions: [
+        { originalPath: '/old/host', targetPath: '/home/u/dev' },
+      ],
+    });
+    const raw = getCapturedContent(captured, (p) => p === claudeJsonPath);
+    const written = JSON.parse(raw) as {
+      recentProjects: { path: string; lastOpened: string }[];
+    };
+    expect(written.recentProjects[0]?.path).toBe('/home/u/dev/p1');
+    expect(written.recentProjects[1]?.path).toBe('/home/u/dev/p2');
+    // Ancillary fields preserved.
+    expect(written.recentProjects[0]?.lastOpened).toBe('2026-01-01');
+  });
+
+  it('warns and preserves field when no decision matches a recognized path field', async () => {
+    const claudeJsonPath = `${claudeDir}.json`;
+    const captured: { path: string; content: string }[] = [];
+    const warnings: string[] = [];
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        lastSessionCwd: '/no/match',
+        recentProjects: [{ path: '/also/no/match' }],
+      },
+      remapDecisions: [
+        { originalPath: '/old/host', targetPath: '/home/u/dev' },
+      ],
+      warn: (m): void => {
+        warnings.push(m);
+      },
+    });
+    const raw = getCapturedContent(captured, (p) => p === claudeJsonPath);
+    const written = JSON.parse(raw) as {
+      lastSessionCwd: string;
+      recentProjects: { path: string }[];
+    };
+    expect(written.lastSessionCwd).toBe('/no/match');
+    expect(written.recentProjects[0]?.path).toBe('/also/no/match');
+    expect(warnings.filter((w) => w.includes('No remap rule matched'))).toHaveLength(2);
+  });
+
+  it('non-path fields (theme, telemetryConsent, hasSeenOnboarding, mcpServers) pass through untouched', async () => {
+    const claudeJsonPath = `${claudeDir}.json`;
+    const captured: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        theme: 'dark',
+        telemetryConsent: false,
+        hasSeenOnboarding: true,
+        mcpServers: { foo: { command: 'bar' } },
+      },
+      remapDecisions: [
+        { originalPath: '/old/host', targetPath: '/home/u/dev' },
+      ],
+    });
+    const raw = getCapturedContent(captured, (p) => p === claudeJsonPath);
+    const written = JSON.parse(raw) as Record<string, unknown>;
+    expect(written.theme).toBe('dark');
+    expect(written.telemetryConsent).toBe(false);
+    expect(written.hasSeenOnboarding).toBe(true);
+    expect(written.mcpServers).toEqual({ foo: { command: 'bar' } });
+  });
+
+  it('empty remapDecisions ([]) — same-OS pass-through, .claude.json written verbatim with no warnings', async () => {
+    const claudeJsonPath = `${claudeDir}.json`;
+    const captured: { path: string; content: string }[] = [];
+    const warnings: string[] = [];
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        lastSessionCwd: 'C:\\agents\\foo',
+        currentProject: 'C:\\agents\\foo',
+        recentProjects: [{ path: 'C:\\agents\\foo' }],
+      },
+      remapDecisions: [],
+      warn: (m): void => {
+        warnings.push(m);
+      },
+    });
+    const raw = getCapturedContent(captured, (p) => p === claudeJsonPath);
+    const written = JSON.parse(raw) as Record<string, unknown>;
+    expect(written.lastSessionCwd).toBe('C:\\agents\\foo');
+    expect(written.currentProject).toBe('C:\\agents\\foo');
+    expect((written.recentProjects as { path: string }[])[0]?.path).toBe('C:\\agents\\foo');
+    expect(warnings).toEqual([]);
+  });
+
+  it('skips empty-string field values without invoking remap or warn', async () => {
+    const claudeJsonPath = `${claudeDir}.json`;
+    const captured: { path: string; content: string }[] = [];
+    const warnings: string[] = [];
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        lastSessionCwd: '',
+        recentProjects: [{ path: '' }],
+      },
+      remapDecisions: [
+        { originalPath: '/old/host', targetPath: '/home/u/dev' },
+      ],
+      warn: (m): void => {
+        warnings.push(m);
+      },
+    });
+    const raw = getCapturedContent(captured, (p) => p === claudeJsonPath);
+    const written = JSON.parse(raw) as { lastSessionCwd: string };
+    expect(written.lastSessionCwd).toBe('');
+    expect(warnings).toEqual([]);
+  });
+});
+
 describe('applyCategory — fresh-install parent-dir creation', () => {
   it('claudeMd merge with slug: creates project parent dir before writing CLAUDE.md', async () => {
     const slug = '-home-user-newproj';

@@ -7,8 +7,24 @@ import {
   type SessionFile,
   type CommandFile,
 } from './claude-reader.js';
+import { remapByDecisions } from '../core/path-engine.js';
 
 type Mode = 'merge' | 'overwrite';
+
+// Structural type matching `RemapDecision[]` (decision-schema.ts) so this
+// module stays decoupled from the schema. TypeScript will accept passing
+// the full RemapDecision[] where this narrower type is expected.
+type RemapDecisionLike = readonly {
+  originalPath: string;
+  targetPath: string | null;
+}[];
+type WarnFn = (msg: string) => void;
+// `warn` is reserved for unmatched paths (collected into summary.warnings,
+// rendered as a yellow ⚠ in human mode). `info` is for successful "Remapped
+// X → Y" log lines that should be visible to the user (so dry-run AC #6 still
+// shows before/after) but must NOT inflate summary.warnings (AC #10 requires
+// it to list "each unmatched path", not every successful remap).
+type InfoFn = (msg: string) => void;
 
 interface GlobalMemoryOpts {
   category: 'globalMemory';
@@ -30,6 +46,9 @@ interface GlobalSettingsOpts {
   targetDir: string;
   data: unknown;
   gate: WriteGate;
+  remapDecisions?: RemapDecisionLike;
+  warn?: WarnFn;
+  info?: InfoFn;
 }
 interface ProjectSettingsOpts {
   category: 'projectSettings';
@@ -37,6 +56,9 @@ interface ProjectSettingsOpts {
   targetDir: string;
   data: { slug: string; settings: unknown };
   gate: WriteGate;
+  remapDecisions?: RemapDecisionLike;
+  warn?: WarnFn;
+  info?: InfoFn;
 }
 interface ClaudeMdOpts {
   category: 'claudeMd';
@@ -88,6 +110,9 @@ interface ClaudeJsonOpts {
   targetDir: string;
   data: unknown;
   gate: WriteGate;
+  remapDecisions?: RemapDecisionLike;
+  warn?: WarnFn;
+  info?: InfoFn;
 }
 
 export type ApplyCategoryOpts =
@@ -331,24 +356,167 @@ async function applySettingsAt(
   await gate.write(filePath, JSON.stringify(merged, null, 2));
 }
 
+// Permission rules in settings.json follow Claude Code's `Verb(path)` format
+// (e.g. `Read(/Users/me/agents/**)`). For each rule we extract the path,
+// apply prefix-substitution against the remap decisions, and reconstruct.
+// Strings that don't match the format pass through untouched and silently
+// (defensive: future permission types must not break on unknown shapes).
+//
+// Real-world Claude Code stores permissions as `{ allow: [...], deny: [...] }`
+// (nested-array form). The Story 2.3 ACs use a flat-array shorthand example,
+// but the implementation must handle both so live bundles get rewritten.
+function remapPermissionRule(
+  rule: unknown,
+  decisions: RemapDecisionLike,
+  warn: WarnFn,
+  info: InfoFn,
+  context: string,
+): unknown {
+  if (typeof rule !== 'string') return rule;
+  const m = /^([A-Za-z]+)\((.+)\)$/.exec(rule);
+  // The regex has two required capture groups, so on a successful match
+  // m[1] and m[2] are always defined. Guard against the optional shape
+  // anyway to keep the strict-null type narrowing happy.
+  const verb = m?.[1];
+  const pathPart = m?.[2];
+  if (verb === undefined || pathPart === undefined) return rule;
+  const result = remapByDecisions(pathPart, decisions);
+  if (result !== null) {
+    info(`Remapped ${context} permission: ${rule} → ${verb}(${result})`);
+    return `${verb}(${result})`;
+  }
+  warn(`No remap rule matched permission path in ${context}: ${pathPart}`);
+  return rule;
+}
+
+const PERMISSION_BUCKETS = ['allow', 'deny', 'ask'] as const;
+
+function remapPermissionRules(
+  data: unknown,
+  decisions: RemapDecisionLike,
+  warn: WarnFn,
+  info: InfoFn,
+  context: string,
+): unknown {
+  if (!isObject(data)) return data;
+  const permissions: unknown = data.permissions;
+
+  // Flat-array form: `permissions: ["Read(...)", "Write(...)"]`. Used in the
+  // Story 2.3 AC examples and some legacy fixtures.
+  if (Array.isArray(permissions)) {
+    const remapped: unknown[] = permissions.map((rule: unknown): unknown =>
+      remapPermissionRule(rule, decisions, warn, info, context),
+    );
+    return { ...data, permissions: remapped };
+  }
+
+  // Nested-array form: `permissions: { allow: [...], deny: [...], ask: [...] }`.
+  // This is the actual on-disk shape Claude Code writes. Only known buckets are
+  // walked; unknown sibling fields pass through verbatim.
+  if (isObject(permissions)) {
+    const remappedPerms: Record<string, unknown> = { ...permissions };
+    for (const bucket of PERMISSION_BUCKETS) {
+      const arr = permissions[bucket];
+      if (!Array.isArray(arr)) continue;
+      remappedPerms[bucket] = arr.map((rule: unknown): unknown =>
+        remapPermissionRule(rule, decisions, warn, info, context),
+      );
+    }
+    return { ...data, permissions: remappedPerms };
+  }
+
+  return data;
+}
+
 async function applyGlobalSettings(opts: GlobalSettingsOpts): Promise<void> {
   const filePath = join(opts.targetDir, 'settings.json');
-  await applySettingsAt(filePath, opts.data, opts.mode, opts.gate);
+  const decisions = opts.remapDecisions ?? [];
+  const warn = opts.warn ?? ((): void => undefined);
+  const info = opts.info ?? ((): void => undefined);
+  const data =
+    decisions.length > 0
+      ? remapPermissionRules(opts.data, decisions, warn, info, 'global settings.json')
+      : opts.data;
+  await applySettingsAt(filePath, data, opts.mode, opts.gate);
 }
 
 async function applyProjectSettings(opts: ProjectSettingsOpts): Promise<void> {
   const filePath = join(opts.targetDir, 'projects', opts.data.slug, 'settings.json');
-  await applySettingsAt(filePath, opts.data.settings, opts.mode, opts.gate);
+  const decisions = opts.remapDecisions ?? [];
+  const warn = opts.warn ?? ((): void => undefined);
+  const info = opts.info ?? ((): void => undefined);
+  const settings =
+    decisions.length > 0
+      ? remapPermissionRules(
+          opts.data.settings,
+          decisions,
+          warn,
+          info,
+          `project ${opts.data.slug} settings.json`,
+        )
+      : opts.data.settings;
+  await applySettingsAt(filePath, settings, opts.mode, opts.gate);
 }
 
 // ---------------------------------------------------------------------------
 // claudeJson  (~/.claude.json — adjacent to ~/.claude/, not inside it)
 // ---------------------------------------------------------------------------
 
+// Recognized absolute-path-bearing fields in ~/.claude.json. Other fields
+// (theme, telemetryConsent, hasSeenOnboarding, hotkeys, mcpServers, …) pass
+// through verbatim. TODO: Story 2.4 integration tests may surface additional
+// path-bearing fields — extend this list as new ones are discovered.
+const CLAUDE_JSON_PATH_FIELDS = ['lastSessionCwd', 'currentProject'] as const;
+
+function remapClaudeJsonPaths(
+  data: unknown,
+  decisions: RemapDecisionLike,
+  warn: WarnFn,
+  info: InfoFn,
+): unknown {
+  if (!isObject(data)) return data;
+  const result: Record<string, unknown> = { ...data };
+
+  for (const field of CLAUDE_JSON_PATH_FIELDS) {
+    const value = result[field];
+    if (typeof value !== 'string' || value.length === 0) continue;
+    const remapped = remapByDecisions(value, decisions);
+    if (remapped !== null) {
+      info(`Remapped .claude.json ${field}: ${value} → ${remapped}`);
+      result[field] = remapped;
+    } else {
+      warn(`No remap rule matched .claude.json ${field}: ${value}`);
+    }
+  }
+
+  const recentProjects: unknown = result.recentProjects;
+  if (Array.isArray(recentProjects)) {
+    result.recentProjects = recentProjects.map((entry: unknown): unknown => {
+      if (!isObject(entry)) return entry;
+      const pathVal: unknown = entry.path;
+      if (typeof pathVal !== 'string' || pathVal.length === 0) return entry;
+      const remapped = remapByDecisions(pathVal, decisions);
+      if (remapped !== null) {
+        info(`Remapped .claude.json recentProjects[].path: ${pathVal} → ${remapped}`);
+        return { ...entry, path: remapped };
+      }
+      warn(`No remap rule matched .claude.json recentProjects[].path: ${pathVal}`);
+      return entry;
+    });
+  }
+
+  return result;
+}
+
 async function applyClaudeJson(opts: ClaudeJsonOpts): Promise<void> {
   // Mirrors locateClaude()'s formula: ~/.claude → ~/.claude.json.
   const filePath = `${opts.targetDir}.json`;
-  await applySettingsAt(filePath, opts.data, opts.mode, opts.gate);
+  const decisions = opts.remapDecisions ?? [];
+  const warn = opts.warn ?? ((): void => undefined);
+  const info = opts.info ?? ((): void => undefined);
+  const data =
+    decisions.length > 0 ? remapClaudeJsonPaths(opts.data, decisions, warn, info) : opts.data;
+  await applySettingsAt(filePath, data, opts.mode, opts.gate);
 }
 
 // ---------------------------------------------------------------------------

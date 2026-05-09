@@ -13,6 +13,7 @@
 # (story 1-11 moved ready-for-dev → in-progress → review on 2026-05-09)
 # (story 1-12 moved ready-for-dev → in-progress → review → done on 2026-05-09)
 # (story 1-13 moved in-progress → review → done on 2026-05-09)
+# (story 2-3 moved ready-for-dev → in-progress → review → done on 2026-05-09)
 # project: ClaudeMemoryMover
 # project_key: NOKEY
 # tracking_system: file-system
@@ -78,7 +79,7 @@ development_status:
   2-0-epic-1-deferred-cleanup: done
   2-1-path-engine-cross-os-conversion-auto-suggest: done
   2-2-cross-os-detection-guided-per-project-remap-ui: review
-  2-3-settings-json-and-claude-json-path-remapping: backlog
+  2-3-settings-json-and-claude-json-path-remapping: done
   2-4-cross-os-integration-tests: backlog
   epic-2-retrospective: optional
 

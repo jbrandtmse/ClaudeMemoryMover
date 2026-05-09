@@ -85,3 +85,35 @@ export function suggestRemap(
   const norm = relative.replaceAll(win32.sep, posix.sep);
   return `${targetHomedir}${posix.sep}${norm}`;
 }
+
+// Longest-prefix match against a set of {originalPath -> targetPath}
+// remap decisions. Decisions whose targetPath is null (skipped projects)
+// are ignored. The suffix's separators are normalized to match the target
+// path's separator style — the source-OS separator left in the suffix
+// after the prefix slice is converted to the target-OS separator. The
+// caller is responsible for any prior normalization of inputPath; this
+// function is a pure prefix substitution and does not call path.normalize.
+export function remapByDecisions(
+  inputPath: string,
+  decisions: readonly { originalPath: string; targetPath: string | null }[],
+): string | null {
+  let best: { originalPath: string; targetPath: string } | null = null;
+  for (const d of decisions) {
+    if (d.targetPath === null) continue;
+    const prefix = d.originalPath;
+    const isMatch =
+      inputPath === prefix ||
+      inputPath.startsWith(prefix + posix.sep) ||
+      inputPath.startsWith(prefix + win32.sep);
+    if (isMatch && (best === null || prefix.length > best.originalPath.length)) {
+      best = { originalPath: prefix, targetPath: d.targetPath };
+    }
+  }
+  if (best === null) return null;
+  const suffix = inputPath.slice(best.originalPath.length);
+  const targetUsesPosix = best.targetPath.includes(posix.sep);
+  const normalizedSuffix = targetUsesPosix
+    ? suffix.replaceAll(win32.sep, posix.sep)
+    : suffix.replaceAll(posix.sep, win32.sep);
+  return best.targetPath + normalizedSuffix;
+}

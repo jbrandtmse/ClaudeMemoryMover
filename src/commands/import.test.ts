@@ -1010,6 +1010,187 @@ describe('cross-OS remap', () => {
     stderrSpy.mockRestore();
   });
 
+  it('Story 2.3 AC #5: same-OS import passes empty remapDecisions to writer', async () => {
+    state.existingPaths.add('/home/u/proj-a');
+    state.bundle = makeBundle({
+      sourcePlatform: HOST_PLATFORM,
+      global: {
+        settings: { permissions: ['Read(/home/u/proj-a/**)'] },
+      },
+      projects: [
+        {
+          slug: '-home-u-proj-a',
+          originalPath: '/home/u/proj-a',
+          settings: { permissions: ['Read(/home/u/proj-a/**)'] },
+        },
+      ],
+    });
+
+    await run('/tmp/bundle.cmemmov', {});
+
+    const globalSettingsCall = state.applyCalls.find(
+      (c): c is Extract<ApplyCategoryOpts, { category: 'globalSettings' }> =>
+        c.category === 'globalSettings',
+    );
+    expect(globalSettingsCall?.remapDecisions).toEqual([]);
+    const projectSettingsCall = state.applyCalls.find(
+      (c): c is Extract<ApplyCategoryOpts, { category: 'projectSettings' }> =>
+        c.category === 'projectSettings',
+    );
+    expect(projectSettingsCall?.remapDecisions).toEqual([]);
+  });
+
+  it('Story 2.3 AC #1, #3: cross-OS import threads RemapDecisions to settings/claudeJson writer calls', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      global: {
+        settings: { permissions: ['Read(/old/host/proj/**)'] },
+        claudeJson: { lastSessionCwd: '/old/host/proj' },
+      },
+      projects: [
+        {
+          slug: '-old-host-proj',
+          originalPath: '/old/host/proj',
+          settings: { permissions: ['Read(/old/host/proj/**)'] },
+        },
+      ],
+    });
+
+    await run('/tmp/bundle.cmemmov', {
+      remap: ['/old/host=/home/u/dev'],
+    });
+
+    const globalSettings = state.applyCalls.find(
+      (c): c is Extract<ApplyCategoryOpts, { category: 'globalSettings' }> =>
+        c.category === 'globalSettings',
+    );
+    expect(globalSettings?.remapDecisions?.length).toBe(1);
+    expect(globalSettings?.remapDecisions?.[0]?.originalPath).toBe('/old/host/proj');
+    expect(globalSettings?.warn).toBeTypeOf('function');
+
+    const claudeJson = state.applyCalls.find(
+      (c): c is Extract<ApplyCategoryOpts, { category: 'claudeJson' }> =>
+        c.category === 'claudeJson',
+    );
+    expect(claudeJson?.remapDecisions?.length).toBe(1);
+    expect(claudeJson?.warn).toBeTypeOf('function');
+
+    const projectSettings = state.applyCalls.find(
+      (c): c is Extract<ApplyCategoryOpts, { category: 'projectSettings' }> =>
+        c.category === 'projectSettings',
+    );
+    expect(projectSettings?.remapDecisions?.length).toBe(1);
+    expect(projectSettings?.warn).toBeTypeOf('function');
+  });
+
+  it('Story 2.3 AC #6: dry-run gate is used and warn callback is wired (no live writes)', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      global: {
+        settings: { permissions: ['Read(/old/host/proj/**)'] },
+      },
+      projects: [
+        {
+          slug: '-old-host-proj',
+          originalPath: '/old/host/proj',
+        },
+      ],
+    });
+
+    await run('/tmp/bundle.cmemmov', {
+      remap: ['/old/host=/home/u/dev'],
+      dryRun: true,
+    });
+
+    expect(gateSvc.makeDryRunWriteGate).toHaveBeenCalledTimes(1);
+    expect(gateSvc.makeLiveWriteGate).not.toHaveBeenCalled();
+    expect(backupSvc.createBackup).not.toHaveBeenCalled();
+
+    // The writer receives a real warn callback that flushes remap messages
+    // through the import-side `out.warn` (visible to user) AND collects them
+    // for `summary.warnings` JSON aggregation.
+    const globalSettings = state.applyCalls.find(
+      (c): c is Extract<ApplyCategoryOpts, { category: 'globalSettings' }> =>
+        c.category === 'globalSettings',
+    );
+    expect(globalSettings?.warn).toBeTypeOf('function');
+    expect(globalSettings?.gate).toEqual(state.dryGates[0]);
+  });
+
+  it('Story 2.3 AC #10: --json with warnings emitted by writer surfaces summary.warnings', async () => {
+    // Drive the mocked applyCategory to call the supplied warn callback so
+    // that `import.ts`'s warning collector accumulates entries for the JSON
+    // summary. This validates that import.ts wires up the callback end-to-end.
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      global: {
+        settings: { permissions: ['Read(/some/unmatched/**)'] },
+      },
+      projects: [
+        {
+          slug: '-old-host-proj',
+          originalPath: '/old/host/proj',
+        },
+      ],
+    });
+    vi.mocked(writerSvc.applyCategory).mockImplementation((opts: ApplyCategoryOpts) => {
+      state.applyCalls.push(opts);
+      // Simulate the writer flagging an unmatched permission path.
+      if (opts.category === 'globalSettings' && opts.warn !== undefined) {
+        opts.warn('No remap rule matched permission path in global settings.json: /some/unmatched/**');
+      }
+      return Promise.resolve();
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await run('/tmp/bundle.cmemmov', {
+      remap: ['/old/host=/home/u/dev'],
+      json: true,
+    });
+
+    const raw = stdoutSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    interface JsonWarn {
+      summary: { warnings?: string[]; remappings?: unknown };
+    }
+    const parsed = JSON.parse(raw) as JsonWarn;
+    expect(Array.isArray(parsed.summary.warnings)).toBe(true);
+    expect(parsed.summary.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('No remap rule matched')]),
+    );
+    stdoutSpy.mockRestore();
+  });
+
+  it('Story 2.3 AC #10: --json without warnings omits summary.warnings entirely', async () => {
+    state.bundle = makeBundle({
+      sourcePlatform: CROSS_SOURCE,
+      projects: [
+        {
+          slug: '-old-host-proj',
+          originalPath: '/old/host/proj',
+        },
+      ],
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await run('/tmp/bundle.cmemmov', {
+      remap: ['/old/host=/home/u/dev'],
+      json: true,
+    });
+
+    const raw = stdoutSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    interface JsonNoWarn {
+      summary: { warnings?: string[]; remappings: unknown };
+    }
+    const parsed = JSON.parse(raw) as JsonNoWarn;
+    expect(parsed.summary.warnings).toBeUndefined();
+    expect(parsed.summary.remappings).toBeDefined();
+    stdoutSpy.mockRestore();
+  });
+
   it('AC9: --json mode emits summary.remappings array on stdout', async () => {
     state.bundle = makeBundle({
       sourcePlatform: CROSS_SOURCE,

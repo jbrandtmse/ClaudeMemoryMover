@@ -324,9 +324,23 @@ async function applyGlobalCategories(
   gate: WriteGate,
   decision: ImportDecision,
   out: Output,
-): Promise<number> {
+  remapDecisions: RemapDecisions,
+): Promise<{ count: number; warnings: string[] }> {
   let count = 0;
   const g = bundle.global;
+  const warnings: string[] = [];
+  // `warn` is reserved for unmatched-path messages: rendered as ⚠ on stderr
+  // AND accumulated into `summary.warnings` for AC #10 (`--json` shape says
+  // "listing each unmatched path"). Successful "Remapped X → Y" log lines
+  // route through `info` instead — visible to the user (so dry-run AC #6
+  // still shows before/after) but not collected, since they aren't warnings.
+  const warn = (msg: string): void => {
+    out.warn(msg);
+    warnings.push(msg);
+  };
+  const info = (msg: string): void => {
+    out.progress(msg);
+  };
 
   if (g.memories !== undefined) {
     await applyCategory({
@@ -346,6 +360,9 @@ async function applyGlobalCategories(
       targetDir: claudeDir,
       data: g.settings,
       gate,
+      remapDecisions,
+      warn,
+      info,
     });
     out.progress('Applied globalSettings');
     count++;
@@ -422,11 +439,14 @@ async function applyGlobalCategories(
       targetDir: claudeDir,
       data: g.claudeJson,
       gate,
+      remapDecisions,
+      warn,
+      info,
     });
     out.progress('Applied claudeJson');
     count++;
   }
-  return count;
+  return { count, warnings };
 }
 
 async function applyProjectCategories(
@@ -436,9 +456,18 @@ async function applyProjectCategories(
   gate: WriteGate,
   decision: ImportDecision,
   out: Output,
-): Promise<number> {
+  remapDecisions: RemapDecisions,
+): Promise<{ count: number; warnings: string[] }> {
   let count = 0;
   const resolvedSlugs = new Set(resolved.map((r) => r.slug));
+  const warnings: string[] = [];
+  const warn = (msg: string): void => {
+    out.warn(msg);
+    warnings.push(msg);
+  };
+  const info = (msg: string): void => {
+    out.progress(msg);
+  };
 
   for (const project of bundle.projects) {
     if (!resolvedSlugs.has(project.slug)) continue;
@@ -461,6 +490,9 @@ async function applyProjectCategories(
         targetDir: claudeDir,
         data: { slug: project.slug, settings: project.settings },
         gate,
+        remapDecisions,
+        warn,
+        info,
       });
       out.progress(`Applied projectSettings (${project.slug})`);
       count++;
@@ -488,7 +520,7 @@ async function applyProjectCategories(
       count++;
     }
   }
-  return count;
+  return { count, warnings };
 }
 
 export async function run(bundlePath: string, opts: ImportOpts = {}): Promise<void> {
@@ -567,24 +599,27 @@ export async function run(bundlePath: string, opts: ImportOpts = {}): Promise<vo
     skippedSlugs = sameOsResult.skippedSlugs;
   }
 
-  const globalCount = await applyGlobalCategories(
+  const globalResult = await applyGlobalCategories(
     bundle,
     claudeDir,
     claudeJsonPath,
     gate,
     decision,
     out,
+    remapDecisions,
   );
-  const projectCount = await applyProjectCategories(
+  const projectResult = await applyProjectCategories(
     bundle,
     resolved,
     claudeDir,
     gate,
     decision,
     out,
+    remapDecisions,
   );
 
-  const totalApplied = globalCount + projectCount;
+  const totalApplied = globalResult.count + projectResult.count;
+  const allWarnings = [...globalResult.warnings, ...projectResult.warnings];
   const summaryParts: string[] = [];
   if (decision.dryRun) {
     summaryParts.push('Dry run — no files written.');
@@ -634,11 +669,14 @@ export async function run(bundlePath: string, opts: ImportOpts = {}): Promise<vo
     });
   }
 
-  // AC #9: in JSON mode the result.summary object includes a `remappings`
-  // array of every RemapDecision. Same-OS imports pass no extra payload so
-  // the JSON shape stays a bare string for backward compatibility.
+  // AC #9 (Story 2.2): cross-OS JSON output includes `summary.remappings`.
+  // AC #10 (Story 2.3): when warnings exist, include `summary.warnings`
+  // (additive). Empty warnings arrays are not added — that would pollute
+  // clean cross-OS imports.
   if (isCrossOS) {
-    out.finish(summaryParts.join(' '), true, { remappings: remapDecisions });
+    const extra: Record<string, unknown> = { remappings: remapDecisions };
+    if (allWarnings.length > 0) extra.warnings = allWarnings;
+    out.finish(summaryParts.join(' '), true, extra);
   } else {
     out.finish(summaryParts.join(' '), true);
   }
