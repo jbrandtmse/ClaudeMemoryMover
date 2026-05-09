@@ -1,0 +1,6 @@
+# Skills are managed by the BMad installer — reinstall with bmad install
+skills/
+
+# Runtime/session data
+projects/
+cache/

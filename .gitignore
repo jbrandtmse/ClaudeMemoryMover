@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Environment / secrets
+.env
+.env.*
+*.credentials.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# BMad personal overrides (already gitignored in _bmad/custom/ but belt-and-suspenders)
+_bmad/custom/*.user.toml
+
+# Claude Code session/cache data (not source artifacts)
+.claude/projects/
+.claude/cache/
+.claude/debug/
+.claude/paste-cache/
+.claude/session-env/
+.claude/shell-snapshots/
+.claude/statsig/
+.claude/telemetry/
+.claude/todos/
+.claude/usage-data/
+.claude/backups/
+
+# Build output
+dist/
+build/
