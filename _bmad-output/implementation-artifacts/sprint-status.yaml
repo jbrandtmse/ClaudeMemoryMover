@@ -68,7 +68,7 @@ development_status:
   1-11-import-command-same-os-happy-path: done
   1-12-rollback-command: done
   1-13-ci-matrix-3-os-test-pipeline: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
 
   # Epic 2: Cross-OS Migration & Path Intelligence (Maya's Journey)
   epic-2: backlog
