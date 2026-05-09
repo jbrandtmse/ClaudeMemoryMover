@@ -87,6 +87,29 @@ export default tseslint.config(
       }],
     },
   },
+  // Override for commands/export.ts: writes the export bundle artifact to a
+  // user-supplied output path outside ~/.claude/. WriteGate is reserved for
+  // writes to the user's Claude Code home; bundle output uses fs directly.
+  // The homedir restriction still applies.
+  {
+    files: ['src/commands/export.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [
+          {
+            name: 'node:os',
+            importNames: ['homedir'],
+            message: 'os.homedir() must only be called in services/claude-locator.ts.',
+          },
+          {
+            name: 'os',
+            importNames: ['homedir'],
+            message: 'os.homedir() must only be called in services/claude-locator.ts.',
+          },
+        ],
+      }],
+    },
+  },
   // Override for claude-locator.ts: the only file allowed to call os.homedir().
   // The fs-write restriction still applies to it.
   {

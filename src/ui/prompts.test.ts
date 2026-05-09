@@ -4,6 +4,7 @@ vi.mock('@clack/prompts', () => ({
   multiselect: vi.fn(),
   select: vi.fn(),
   confirm: vi.fn(),
+  text: vi.fn(),
   isCancel: vi.fn().mockReturnValue(false),
   cancel: vi.fn(),
   spinner: vi.fn(() => ({
@@ -18,9 +19,11 @@ import { CmemmovError } from '../core/error.js';
 import {
   selectCategories,
   selectMergeMode,
+  selectProjects,
   confirmCredentials,
   confirmOverwrite,
   createSpinner,
+  promptOriginalPath,
 } from './prompts.js';
 
 const CANCEL_SYMBOL = Symbol('clack:cancel');
@@ -29,6 +32,7 @@ beforeEach(() => {
   vi.mocked(clack.multiselect).mockReset();
   vi.mocked(clack.select).mockReset();
   vi.mocked(clack.confirm).mockReset();
+  vi.mocked(clack.text).mockReset();
   vi.mocked(clack.isCancel).mockReset().mockReturnValue(false);
   vi.mocked(clack.cancel).mockReset();
 });
@@ -159,6 +163,88 @@ describe('confirmOverwrite', () => {
     vi.mocked(clack.confirm).mockResolvedValueOnce(true);
     const result = await confirmOverwrite({ silent: false });
     expect(result).toBe(true);
+  });
+});
+
+describe('selectProjects', () => {
+  it('returns [] when given no options without calling clack', async () => {
+    const result = await selectProjects({ options: [] });
+    expect(result).toEqual([]);
+    expect(clack.multiselect).not.toHaveBeenCalled();
+  });
+
+  it('calls clack.multiselect with the provided options', async () => {
+    vi.mocked(clack.multiselect).mockResolvedValueOnce(['slug-a']);
+    const result = await selectProjects({
+      options: [
+        { slug: 'slug-a', label: '/home/a' },
+        { slug: 'slug-b', label: '/home/b' },
+      ],
+    });
+    expect(result).toEqual(['slug-a']);
+    expect(clack.multiselect).toHaveBeenCalledTimes(1);
+  });
+
+  it('Ctrl+C → cancel + exit(130)', async () => {
+    vi.mocked(clack.multiselect).mockResolvedValueOnce(CANCEL_SYMBOL);
+    vi.mocked(clack.isCancel).mockReturnValueOnce(true);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+
+    await expect(selectProjects({ options: [{ slug: 's', label: 'l' }] })).rejects.toThrow('exit');
+    expect(exitSpy).toHaveBeenCalledWith(130);
+    exitSpy.mockRestore();
+  });
+});
+
+describe('promptOriginalPath', () => {
+  it('returns the value in silent mode without calling clack', async () => {
+    const result = await promptOriginalPath({
+      slug: '-home-x',
+      suggestedPath: '/home/x',
+      silent: true,
+      value: '/home/x',
+    });
+    expect(result).toBe('/home/x');
+    expect(clack.text).not.toHaveBeenCalled();
+  });
+
+  it('throws CmemmovError(PATH_REMAP_AMBIGUOUS) when silent and value missing', async () => {
+    await expect(
+      promptOriginalPath({ slug: '-home-x', suggestedPath: '/home/x', silent: true }),
+    ).rejects.toBeInstanceOf(CmemmovError);
+    await expect(
+      promptOriginalPath({ slug: '-home-x', suggestedPath: '/home/x', silent: true }),
+    ).rejects.toMatchObject({
+      code: 'PATH_REMAP_AMBIGUOUS',
+      hint: '--project-path <slug>=<path> required for memory-only project -home-x',
+    });
+  });
+
+  it('calls clack.text in interactive mode and returns trimmed result', async () => {
+    vi.mocked(clack.text).mockResolvedValueOnce('  /home/y  ');
+    const result = await promptOriginalPath({
+      slug: '-home-y',
+      suggestedPath: '/home/y',
+      silent: false,
+    });
+    expect(result).toBe('/home/y');
+    expect(clack.text).toHaveBeenCalledTimes(1);
+  });
+
+  it('Ctrl+C → cancel + exit(130)', async () => {
+    vi.mocked(clack.text).mockResolvedValueOnce(CANCEL_SYMBOL);
+    vi.mocked(clack.isCancel).mockReturnValueOnce(true);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+
+    await expect(
+      promptOriginalPath({ slug: '-home-y', suggestedPath: '/home/y', silent: false }),
+    ).rejects.toThrow('exit');
+    expect(exitSpy).toHaveBeenCalledWith(130);
+    exitSpy.mockRestore();
   });
 });
 

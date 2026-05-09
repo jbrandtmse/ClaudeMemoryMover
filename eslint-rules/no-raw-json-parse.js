@@ -3,6 +3,8 @@ const ALLOWED_SUFFIX = [
   'src\\services\\bundle-parser.ts',
   'src/services/claude-reader.ts',
   'src\\services\\claude-reader.ts',
+  'src/commands/export-selection.ts',
+  'src\\commands\\export-selection.ts',
 ];
 
 /** @type {import('eslint').Rule.RuleModule} */

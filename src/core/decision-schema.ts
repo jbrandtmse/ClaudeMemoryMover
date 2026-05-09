@@ -31,6 +31,9 @@ export interface ExportDecision {
   outputPath: string;
   silent: boolean;
   json: boolean;
+  allProjects: boolean;
+  projects: string[];
+  projectPaths: Record<string, string>;
 }
 
 export interface ImportDecision {
@@ -58,4 +61,9 @@ export const FLAG_NAMES = {
   noIntegrityCheck: '--no-integrity-check',
   backupPath: '--backup',
   force: '--force',
+  output: '--output',
+  allProjects: '--all-projects',
+  projects: '--projects',
+  projectPath: '--project-path',
+  includeSessions: '--include-sessions',
 } as const satisfies Record<string, string>;

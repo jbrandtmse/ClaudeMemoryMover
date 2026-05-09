@@ -4,6 +4,30 @@ import { CmemmovError } from './core/error.js';
 import { Output } from './ui/output.js';
 import { VERSION } from './version.js';
 
+interface GlobalCLIOpts {
+  silent?: boolean;
+  json?: boolean;
+  dryRun?: boolean;
+}
+
+interface ExportCLIOpts extends GlobalCLIOpts {
+  categories?: string;
+  output?: string;
+  includeCredentials?: boolean;
+  includeSessions?: boolean;
+  allProjects?: boolean;
+  projects?: string;
+  projectPath?: Record<string, string>;
+}
+
+function parseProjectPath(val: string, prev: Record<string, string>): Record<string, string> {
+  const eqIdx = val.indexOf('=');
+  if (eqIdx < 1) return prev;
+  const slug = val.slice(0, eqIdx);
+  const path = val.slice(eqIdx + 1);
+  return { ...prev, [slug]: path };
+}
+
 export function buildProgram(): Command {
   const program = new Command();
 
@@ -16,13 +40,27 @@ export function buildProgram(): Command {
     .option('--dry-run', 'simulate writes without touching the filesystem')
     .exitOverride();
 
-  program
+  const exportCmd = program
     .command('export')
     .description('Export your Claude Code environment to a bundle file')
-    .action(async () => {
-      const { run } = await import('./commands/export.js');
-      await run();
-    });
+    .option('--categories <list>', 'comma-separated categories (camelCase or kebab-case; or "all")')
+    .option('--output <path>', 'output file path (default: claude-export-YYYY-MM-DD.cmemmov in cwd)')
+    .option('--include-credentials', 'include credentials in bundle (emits warning)')
+    .option('--include-sessions', 'include session history in bundle')
+    .option('--all-projects', 'include all projects without prompting')
+    .option('--projects <list>', 'comma-separated project slugs, or "all"')
+    .option(
+      '--project-path <spec>',
+      'provide originalPath for a memory-only project (slug=path)',
+      parseProjectPath,
+      {} as Record<string, string>,
+    );
+
+  exportCmd.action(async () => {
+    const allOpts = exportCmd.optsWithGlobals<ExportCLIOpts>();
+    const { run } = await import('./commands/export.js');
+    await run(allOpts);
+  });
 
   program
     .command('import')

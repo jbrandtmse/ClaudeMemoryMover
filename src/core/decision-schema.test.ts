@@ -47,6 +47,11 @@ describe('decision-schema', () => {
       expect(FLAG_NAMES.noIntegrityCheck).toBe('--no-integrity-check');
       expect(FLAG_NAMES.backupPath).toBe('--backup');
       expect(FLAG_NAMES.force).toBe('--force');
+      expect(FLAG_NAMES.output).toBe('--output');
+      expect(FLAG_NAMES.allProjects).toBe('--all-projects');
+      expect(FLAG_NAMES.projects).toBe('--projects');
+      expect(FLAG_NAMES.projectPath).toBe('--project-path');
+      expect(FLAG_NAMES.includeSessions).toBe('--include-sessions');
     });
   });
 
@@ -58,6 +63,9 @@ describe('decision-schema', () => {
         outputPath: '/tmp/out.cmemmov.json',
         silent: false,
         json: false,
+        allProjects: false,
+        projects: [],
+        projectPaths: {},
       } satisfies ExportDecision;
       expect(value.categories).toContain('globalMemory');
     });
