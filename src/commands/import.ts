@@ -1,5 +1,5 @@
 import { readFile, stat, readdir } from 'node:fs/promises';
-import { dirname, join, normalize, sep } from 'node:path';
+import { dirname, join, normalize, posix, sep, win32 } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import process from 'node:process';
 import { locateClaude } from '../services/claude-locator.js';
@@ -240,7 +240,18 @@ async function resolveProjectsCrossOS(
           hint: `--remap rule needed for ${project.originalPath}`,
         });
       }
-      const raw = match.rhs + project.originalPath.slice(match.lhs.length);
+      // The suffix sliced from `originalPath` carries the SOURCE-OS separators
+      // (e.g. `\` from a win32 bundle). On a POSIX runtime, `path.normalize`
+      // would preserve those backslashes as filename chars, defeating the
+      // `isInsideHome` boundary check below. Mirror the suffix-normalization
+      // already done in `path-engine.remapByDecisions`: pick the target's
+      // separator style from `match.rhs` and rewrite the suffix to match.
+      const suffix = project.originalPath.slice(match.lhs.length);
+      const targetUsesPosix = match.rhs.includes(posix.sep);
+      const normalizedSuffix = targetUsesPosix
+        ? suffix.replaceAll(win32.sep, posix.sep)
+        : suffix.replaceAll(posix.sep, win32.sep);
+      const raw = match.rhs + normalizedSuffix;
       const targetPath = normalize(raw);
       // Path-traversal guard: after collapsing `..` segments, the resolved
       // path must remain inside the user's home. Cross-OS imports often see
