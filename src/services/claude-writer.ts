@@ -8,17 +8,7 @@ import {
   type CommandFile,
 } from './claude-reader.js';
 
-export type ClaudeCategory =
-  | 'globalMemory'
-  | 'projectMemory'
-  | 'globalSettings'
-  | 'projectSettings'
-  | 'claudeMd'
-  | 'mcpConfig'
-  | 'customCommands'
-  | 'teams'
-  | 'plugins'
-  | 'sessionHistory';
+export type { ClaudeCategory } from '../core/decision-schema.js';
 
 type Mode = 'merge' | 'overwrite';
 
