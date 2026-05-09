@@ -1,0 +1,65 @@
+[
+  {
+    "description": "win→mac: Windows Users path to macOS home",
+    "originalPath": "C:\\Users\\Josh\\dev\\app",
+    "targetPlatform": "darwin",
+    "targetHomedir": "/Users/josh",
+    "expected": "/Users/josh/dev/app"
+  },
+  {
+    "description": "win→linux: Windows Users path to Linux home",
+    "originalPath": "C:\\Users\\Josh\\dev\\app",
+    "targetPlatform": "linux",
+    "targetHomedir": "/home/josh",
+    "expected": "/home/josh/dev/app"
+  },
+  {
+    "description": "mac→win: macOS Users path to Windows home",
+    "originalPath": "/Users/maya/agents/foo",
+    "targetPlatform": "win32",
+    "targetHomedir": "C:\\Users\\maya",
+    "expected": "C:\\Users\\maya\\agents\\foo"
+  },
+  {
+    "description": "mac→linux: macOS Users path to Linux home",
+    "originalPath": "/Users/maya/agents/foo",
+    "targetPlatform": "linux",
+    "targetHomedir": "/home/maya",
+    "expected": "/home/maya/agents/foo"
+  },
+  {
+    "description": "linux→mac: Linux home path to macOS home",
+    "originalPath": "/home/jordan/dev/api",
+    "targetPlatform": "darwin",
+    "targetHomedir": "/Users/jordan",
+    "expected": "/Users/jordan/dev/api"
+  },
+  {
+    "description": "linux→win: Linux home path to Windows home",
+    "originalPath": "/home/jordan/dev/api",
+    "targetPlatform": "win32",
+    "targetHomedir": "C:\\Users\\jordan",
+    "expected": "C:\\Users\\jordan\\dev\\api"
+  },
+  {
+    "description": "null: Windows non-home path (D: drive, no Users prefix)",
+    "originalPath": "D:\\scratch\\old-project",
+    "targetPlatform": "darwin",
+    "targetHomedir": "/Users/josh",
+    "expected": null
+  },
+  {
+    "description": "null: Windows C: drive but no Users segment",
+    "originalPath": "C:\\workspace\\project",
+    "targetPlatform": "linux",
+    "targetHomedir": "/home/josh",
+    "expected": null
+  },
+  {
+    "description": "null: UNC path has no home prefix",
+    "originalPath": "\\\\server\\share\\folder",
+    "targetPlatform": "darwin",
+    "targetHomedir": "/Users/josh",
+    "expected": null
+  }
+]

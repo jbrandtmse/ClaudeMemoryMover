@@ -52,3 +52,36 @@ export function isCrossPlatformMigration(
 ): boolean {
   return sourcePlatform !== currentPlatform;
 }
+
+export function suggestRemap(
+  originalPath: string,
+  targetPlatform: NodeJS.Platform,
+  targetHomedir: string,
+): string | null {
+  let relative: string | null = null;
+
+  // Windows home: <drive>:\Users\<username>\<rest>
+  const winMatch = /^[A-Za-z]:\\Users\\[^\\]+\\(.+)$/i.exec(originalPath);
+  if (winMatch?.[1] !== undefined) relative = winMatch[1];
+
+  // macOS home: /Users/<username>/<rest>
+  if (relative === null) {
+    const macMatch = /^\/Users\/[^/]+\/(.+)$/.exec(originalPath);
+    if (macMatch?.[1] !== undefined) relative = macMatch[1];
+  }
+
+  // Linux home: /home/<username>/<rest>
+  if (relative === null) {
+    const linuxMatch = /^\/home\/[^/]+\/(.+)$/.exec(originalPath);
+    if (linuxMatch?.[1] !== undefined) relative = linuxMatch[1];
+  }
+
+  if (relative === null) return null;
+
+  if (targetPlatform === 'win32') {
+    const norm = relative.replaceAll(posix.sep, win32.sep);
+    return `${targetHomedir}${win32.sep}${norm}`;
+  }
+  const norm = relative.replaceAll(win32.sep, posix.sep);
+  return `${targetHomedir}${posix.sep}${norm}`;
+}

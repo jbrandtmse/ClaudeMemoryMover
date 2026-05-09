@@ -4,8 +4,10 @@ import {
   slugToPath,
   findMatchingDir,
   isCrossPlatformMigration,
+  suggestRemap,
 } from './path-engine.js';
 import fixtures from '../../tests/fixtures/slug-edge-cases.json' with { type: 'json' };
+import remapFixtures from '../../tests/fixtures/cross-os-remap-cases.json' with { type: 'json' };
 
 interface SlugFixture {
   description: string;
@@ -15,7 +17,16 @@ interface SlugFixture {
   decodesTo: string | null;
 }
 
+interface RemapFixture {
+  description: string;
+  originalPath: string;
+  targetPlatform: string;
+  targetHomedir: string;
+  expected: string | null;
+}
+
 const fixtureCases: readonly SlugFixture[] = fixtures;
+const remapCases: readonly RemapFixture[] = remapFixtures;
 
 const encodeCases = fixtureCases.filter(
   (f): f is SlugFixture & { absolutePath: string } => f.absolutePath !== null,
@@ -36,6 +47,24 @@ describe('path-engine', () => {
 
     it('matches Claude Code algorithm for unix example from AC 1', () => {
       expect(pathToSlug('/home/jordan/dev/api-gateway')).toBe('-home-jordan-dev-api-gateway');
+    });
+
+    it('encodes a UNC path by replacing every backslash with a dash (Story 2.1 AC #5)', () => {
+      expect(pathToSlug('\\\\server\\share\\folder')).toBe('--server-share-folder');
+    });
+
+    it('preserves unicode characters in paths — only :, /, \\ are replaced (Story 2.1 AC #6)', () => {
+      const original = '/home/user/résumé';
+      const slug = pathToSlug(original);
+      expect(slug).toBe('-home-user-résumé');
+      expect(slugToPath(slug, 'linux')).toBe(original);
+    });
+
+    it('preserves spaces in win32 paths — round-trips through slugToPath (Story 2.1 AC #6)', () => {
+      const original = 'C:\\Users\\Josh\\My Documents\\project';
+      const slug = pathToSlug(original);
+      expect(slug).toBe('C--Users-Josh-My Documents-project');
+      expect(slugToPath(slug, 'win32')).toBe(original);
     });
   });
 
@@ -81,6 +110,18 @@ describe('path-engine', () => {
 
     it('returns null for an unsupported platform', () => {
       expect(slugToPath('-anything', 'aix')).toBeNull();
+    });
+
+    it('decodes a foreign win32 slug from any runtime OS (Story 2.1 AC #1)', () => {
+      expect(slugToPath('C--Users-Josh-dev-app', 'win32')).toBe('C:\\Users\\Josh\\dev\\app');
+    });
+
+    it('decodes a foreign linux slug from any runtime OS (Story 2.1 AC #1)', () => {
+      expect(slugToPath('-home-jordan-dev-api', 'linux')).toBe('/home/jordan/dev/api');
+    });
+
+    it('decodes a foreign darwin slug from any runtime OS (Story 2.1 AC #1)', () => {
+      expect(slugToPath('-Users-maya-agents-foo', 'darwin')).toBe('/Users/maya/agents/foo');
     });
   });
 
@@ -137,6 +178,28 @@ describe('path-engine', () => {
       expect(isCrossPlatformMigration('darwin', 'linux')).toBe(true);
       expect(isCrossPlatformMigration('linux', 'win32')).toBe(true);
       expect(isCrossPlatformMigration('win32', 'darwin')).toBe(true);
+    });
+  });
+
+  describe('suggestRemap', () => {
+    it.each(remapCases)(
+      'remaps $description',
+      ({ originalPath, targetPlatform, targetHomedir, expected }) => {
+        expect(
+          suggestRemap(originalPath, targetPlatform as NodeJS.Platform, targetHomedir),
+        ).toBe(expected);
+      },
+    );
+
+    it('returns null for a POSIX path with no recognized home prefix (Story 2.1 AC #4)', () => {
+      expect(suggestRemap('/etc/nginx/nginx.conf', 'darwin', '/Users/josh')).toBeNull();
+      expect(suggestRemap('/tmp/scratch', 'linux', '/home/josh')).toBeNull();
+    });
+
+    it('is case-insensitive for the Windows drive letter (Story 2.1 AC #3)', () => {
+      expect(suggestRemap('c:\\Users\\Josh\\dev\\app', 'darwin', '/Users/josh')).toBe(
+        '/Users/josh/dev/app',
+      );
     });
   });
 });

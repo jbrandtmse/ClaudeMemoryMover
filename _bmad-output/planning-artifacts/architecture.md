@@ -675,7 +675,7 @@ cli.ts depends on commands + ui
 ```typescript
 export function pathToSlug(absolutePath: string): string;
 export function slugToPath(slug: string, sourcePlatform: NodeJS.Platform): string | null;
-export function suggestRemap(originalPath: string, targetPlatform: NodeJS.Platform, targetHomedir: string): string;
+export function suggestRemap(originalPath: string, targetPlatform: NodeJS.Platform, targetHomedir: string): string | null;
 export function findMatchingDir(originalPath: string, scanRoots: string[]): string | null;
 export function isCrossPlatformMigration(sourcePlatform: NodeJS.Platform, currentPlatform: NodeJS.Platform): boolean;
 ```
