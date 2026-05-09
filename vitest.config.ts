@@ -7,9 +7,13 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       thresholds: {
+        lines: 80,
         'src/core/path-engine.ts': {
           lines: 100,
           branches: 100,
+        },
+        'src/core/bundle-schema.ts': {
+          lines: 100,
         },
         'src/services/bundle-parser.ts': {
           lines: 100,

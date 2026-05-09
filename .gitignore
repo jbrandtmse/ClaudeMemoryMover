@@ -29,3 +29,6 @@ _bmad/custom/*.user.toml
 # Build output
 dist/
 build/
+
+# Large perf fixtures (materialized at runtime by builder script)
+tests/fixtures/large-bundles/

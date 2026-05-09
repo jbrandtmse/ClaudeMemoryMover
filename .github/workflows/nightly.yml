@@ -1,16 +1,22 @@
-name: CI Seed
+name: Nightly & Release Perf
+
 on:
+  schedule:
+    - cron: '0 3 * * *'
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    tags:
+      - 'v*'
+
 jobs:
-  lint-and-typecheck:
+  large-perf:
+    name: large-perf (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      CMEMMOV_RUN_LARGE_PERF: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,5 +24,5 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run test -- --reporter=verbose tests/integration/large-perf.test.ts

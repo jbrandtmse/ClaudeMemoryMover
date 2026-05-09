@@ -13,7 +13,9 @@
     "test:watch": "vitest",
     "build": "tsup",
     "dev": "tsup --watch",
-    "check": "npm run lint && npm run typecheck && npm run test"
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "bench:startup": "node scripts/bench-startup.mjs",
+    "coverage:run": "vitest run --coverage"
   },
   "dependencies": {
     "commander": "12.1.0",
