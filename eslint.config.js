@@ -22,13 +22,75 @@ export default tseslint.config(
       'cmemmov/no-raw-json-parse': 'error',
     },
   },
+  // Base block: applies fs-write + homedir restrictions to all src/**/*.ts.
+  // Subsequent blocks below override this rule for specific files that
+  // legitimately need one of the restricted imports.
   {
     files: ['src/**/*.ts'],
-    ignores: [
-      'src/services/write-gate.ts',
-      'src/services/backup-service.ts',
-      'src/**/*.test.ts',
-    ],
+    ignores: ['src/**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [
+          {
+            name: 'node:fs/promises',
+            importNames: ['writeFile', 'rename', 'unlink', 'copyFile', 'rmdir', 'rm'],
+            message: 'Direct fs write ops must go through WriteGate (src/services/write-gate.ts).',
+          },
+          {
+            name: 'fs/promises',
+            importNames: ['writeFile', 'rename', 'unlink', 'copyFile', 'rmdir', 'rm'],
+            message: 'Direct fs write ops must go through WriteGate (src/services/write-gate.ts).',
+          },
+          {
+            name: 'node:fs',
+            importNames: ['writeFileSync', 'renameSync', 'unlinkSync', 'copyFileSync', 'rmdirSync', 'rmSync'],
+            message: 'Direct fs write ops must go through WriteGate (src/services/write-gate.ts).',
+          },
+          {
+            name: 'fs',
+            importNames: ['writeFileSync', 'renameSync', 'unlinkSync', 'copyFileSync', 'rmdirSync', 'rmSync'],
+            message: 'Direct fs write ops must go through WriteGate (src/services/write-gate.ts).',
+          },
+          {
+            name: 'node:os',
+            importNames: ['homedir'],
+            message: 'os.homedir() must only be called in services/claude-locator.ts.',
+          },
+          {
+            name: 'os',
+            importNames: ['homedir'],
+            message: 'os.homedir() must only be called in services/claude-locator.ts.',
+          },
+        ],
+      }],
+    },
+  },
+  // Override for write-gate.ts and backup-service.ts: they own atomic
+  // filesystem operations and must be allowed to import fs-write functions.
+  // The homedir restriction still applies to them.
+  {
+    files: ['src/services/write-gate.ts', 'src/services/backup-service.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [
+          {
+            name: 'node:os',
+            importNames: ['homedir'],
+            message: 'os.homedir() must only be called in services/claude-locator.ts.',
+          },
+          {
+            name: 'os',
+            importNames: ['homedir'],
+            message: 'os.homedir() must only be called in services/claude-locator.ts.',
+          },
+        ],
+      }],
+    },
+  },
+  // Override for claude-locator.ts: the only file allowed to call os.homedir().
+  // The fs-write restriction still applies to it.
+  {
+    files: ['src/services/claude-locator.ts'],
     rules: {
       'no-restricted-imports': ['error', {
         paths: [

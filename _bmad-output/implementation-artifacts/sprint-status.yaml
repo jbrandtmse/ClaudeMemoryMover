@@ -4,6 +4,7 @@
 # (story 1-4 moved ready-for-dev → in-progress → review on 2026-05-09)
 # (story 1-5 moved ready-for-dev → in-progress → review on 2026-05-09)
 # (story 1-6 moved ready-for-dev → in-progress → review on 2026-05-09)
+# (story 1-7 moved ready-for-dev → in-progress → review → done on 2026-05-09)
 # project: ClaudeMemoryMover
 # project_key: NOKEY
 # tracking_system: file-system
@@ -54,7 +55,7 @@ development_status:
   1-4-core-models-bundle-schema-error-sanitization-rules: done
   1-5-filesystem-discipline-writegate-backup-service: done
   1-6-bundle-io-parser-serializer: done
-  1-7-claude-code-surface-locator-reader-writer: backlog
+  1-7-claude-code-surface-locator-reader-writer: done
   1-8-ui-layer-output-formatter-prompts-wrapper-decision-schema: backlog
   1-9-cli-shell-cmemmov-entry-point-command-dispatch: backlog
   1-10-export-command: backlog

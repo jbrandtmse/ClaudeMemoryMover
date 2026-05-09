@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": ["Bash(npm:*)", "Read(~/.claude/*)"],
+    "deny": []
+  },
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    }
+  }
+}
