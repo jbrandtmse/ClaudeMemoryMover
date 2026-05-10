@@ -99,7 +99,13 @@ export function buildProgram(): Command {
 
   const fixPathsCmd = program
     .command('fix-paths')
-    .description('Re-associate project slugs with new repository locations');
+    .description('Re-associate project slugs with new repository locations')
+    .option(
+      '--remap <spec>',
+      'remap prefix: "source-prefix=target-prefix" (repeatable)',
+      parseRemap,
+      [] as string[],
+    );
 
   fixPathsCmd.action(async () => {
     const allOpts = fixPathsCmd.optsWithGlobals<FixPathsCLIOpts>();
