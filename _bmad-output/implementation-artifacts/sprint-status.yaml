@@ -83,7 +83,7 @@ development_status:
   2-2-cross-os-detection-guided-per-project-remap-ui: done
   2-3-settings-json-and-claude-json-path-remapping: done
   2-4-cross-os-integration-tests: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   # Epic 3: Path Repair Standalone Command (Jordan's Journey)
   epic-3: backlog
