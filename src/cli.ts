@@ -3,6 +3,7 @@ import { Command, CommanderError } from 'commander';
 import { CmemmovError } from './core/error.js';
 import { Output } from './ui/output.js';
 import { VERSION } from './version.js';
+import type { FixPathsOpts as FixPathsCLIOpts } from './commands/fix-paths.js';
 
 interface GlobalCLIOpts {
   silent?: boolean;
@@ -96,13 +97,15 @@ export function buildProgram(): Command {
     await run(bundlePath, allOpts);
   });
 
-  program
+  const fixPathsCmd = program
     .command('fix-paths')
-    .description('Re-associate project slugs with new repository locations')
-    .action(async () => {
-      const { run } = await import('./commands/fix-paths.js');
-      await run();
-    });
+    .description('Re-associate project slugs with new repository locations');
+
+  fixPathsCmd.action(async () => {
+    const allOpts = fixPathsCmd.optsWithGlobals<FixPathsCLIOpts>();
+    const { run } = await import('./commands/fix-paths.js');
+    await run(allOpts);
+  });
 
   program
     .command('share')

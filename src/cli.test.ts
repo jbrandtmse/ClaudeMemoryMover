@@ -217,9 +217,10 @@ describe('cli', () => {
       const cliTryMatches = cliSource.match(/\btry\s*{/g) ?? [];
       expect(cliTryMatches).toHaveLength(1);
 
-      // 'export' (Story 1.10), 'import' (Story 1.11), and 'rollback'
-      // (Story 1.12) are implemented and are no longer placeholders.
-      const placeholders = ['fix-paths', 'share', 'completion'];
+      // 'export' (Story 1.10), 'import' (Story 1.11), 'rollback' (Story 1.12),
+      // and 'fix-paths' (Story 3.1 scan phase) are implemented and are no
+      // longer placeholders.
+      const placeholders = ['share', 'completion'];
       for (const name of placeholders) {
         const src = await fs.readFile(
           url.fileURLToPath(new URL(`./commands/${name}.ts`, import.meta.url)),
@@ -232,7 +233,7 @@ describe('cli', () => {
   });
 
   describe('AC7: real placeholder modules throw CmemmovError(INTERNAL/not implemented)', () => {
-    it.each(['fix-paths', 'share', 'completion'])(
+    it.each(['share', 'completion'])(
       '%s placeholder throws INTERNAL with not-implemented hint',
       async (name) => {
         const mod = await vi.importActual<{ run: () => Promise<void> }>(
@@ -300,7 +301,12 @@ describe('cli', () => {
         url.fileURLToPath(new URL('./cli.ts', import.meta.url)),
         'utf8',
       );
-      const staticImportRe = /^\s*import\s[^;]*?from\s+['"]\.\/commands\/[^'"]+['"]/gm;
+      // Match runtime (value) imports of command modules. Type-only imports
+      // (`import type ...`) are erased by the TypeScript compiler and do not
+      // pull the module into the runtime bundle, so they are exempt from the
+      // lazy-load invariant. Story 3.1 introduces one such type-only import
+      // for FixPathsOpts so the cli can type-check the optsWithGlobals call.
+      const staticImportRe = /^\s*import\s+(?!type\s)[^;]*?from\s+['"]\.\/commands\/[^'"]+['"]/gm;
       const staticMatches = cliSource.match(staticImportRe) ?? [];
       expect(staticMatches).toHaveLength(0);
 
