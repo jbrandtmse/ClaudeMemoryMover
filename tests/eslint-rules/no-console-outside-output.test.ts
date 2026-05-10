@@ -12,6 +12,8 @@ describe('no-console-outside-output', () => {
       valid: [
         { code: 'console.log("hello");', filename: 'src/ui/output.ts' },
         { code: 'process.stdout.write("x");', filename: 'src/ui/output.ts' },
+        { code: 'console.info("hello");', filename: 'src/ui/output.ts' },
+        { code: 'console.debug("hello");', filename: 'src/ui/output.ts' },
       ],
       invalid: [
         {
@@ -27,6 +29,32 @@ describe('no-console-outside-output', () => {
         {
           code: 'process.stderr.write("x");',
           filename: 'src/services/write-gate.ts',
+          errors: [{ messageId: 'useOutputModule' }],
+        },
+        // Newly banned identifiers (Story 3.0 expansion):
+        {
+          code: 'console.info("x");',
+          filename: 'src/commands/import.ts',
+          errors: [{ messageId: 'useOutputModule' }],
+        },
+        {
+          code: 'console.debug("x");',
+          filename: 'src/commands/import.ts',
+          errors: [{ messageId: 'useOutputModule' }],
+        },
+        {
+          code: 'console.trace("x");',
+          filename: 'src/commands/import.ts',
+          errors: [{ messageId: 'useOutputModule' }],
+        },
+        {
+          code: 'console.table({ a: 1 });',
+          filename: 'src/commands/import.ts',
+          errors: [{ messageId: 'useOutputModule' }],
+        },
+        {
+          code: 'console.dir({ a: 1 });',
+          filename: 'src/commands/import.ts',
           errors: [{ messageId: 'useOutputModule' }],
         },
       ],

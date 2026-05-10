@@ -3,11 +3,13 @@ import { dirname, join } from 'node:path';
 import type { WriteGate } from './write-gate.js';
 import {
   readClaudeJsonFile,
+  readSettingsFileStrict,
   type MemoryFile,
   type SessionFile,
   type CommandFile,
 } from './claude-reader.js';
 import { remapByDecisions } from '../core/path-engine.js';
+import { CmemmovError } from '../core/error.js';
 
 type Mode = 'merge' | 'overwrite';
 
@@ -213,8 +215,18 @@ function deepMerge(target: unknown, source: unknown): unknown {
   for (const [key, val] of Object.entries(source)) {
     const existing = result[key];
     if (Array.isArray(existing) && Array.isArray(val)) {
-      // Permission rules and similar string arrays: de-dupe by string equality.
-      result[key] = [...new Set([...(existing as unknown[]), ...(val as unknown[])])];
+      const allStrings =
+        (existing as unknown[]).every((e) => typeof e === 'string') &&
+        (val as unknown[]).every((e) => typeof e === 'string');
+      if (allStrings) {
+        // String arrays (permission rules, etc.): de-dupe by string equality.
+        result[key] = [...new Set([...(existing as string[]), ...(val as string[])])];
+      } else {
+        // Object arrays (e.g. hooks): a Set-based dedup uses reference equality
+        // and silently produces logical duplicates. Replace existing with
+        // incoming so the merge is deterministic.
+        result[key] = val;
+      }
     } else {
       result[key] = deepMerge(existing, val);
     }
@@ -340,6 +352,22 @@ async function applyProjectMemory(opts: ProjectMemoryOpts): Promise<void> {
 // globalSettings & projectSettings
 // ---------------------------------------------------------------------------
 
+// Read+parse a JSON settings file, distinguishing absent (ENOENT → empty base)
+// from malformed (parse failure → throw INTERNAL). The default reader collapses
+// both to `undefined`, which would silently overwrite a corrupt-but-recoverable
+// settings file on the next merge.
+async function readSettingsForMerge(filePath: string): Promise<Record<string, unknown>> {
+  const result = await readSettingsFileStrict(filePath);
+  if (result === undefined) return {};
+  if (result === 'malformed') {
+    throw new CmemmovError({
+      code: 'INTERNAL',
+      hint: `settings file is malformed; restore from backup or fix manually before importing: ${filePath}`,
+    });
+  }
+  return result;
+}
+
 async function applySettingsAt(
   filePath: string,
   data: unknown,
@@ -351,7 +379,7 @@ async function applySettingsAt(
     await gate.write(filePath, JSON.stringify(data, null, 2));
     return;
   }
-  const existing = (await readClaudeJsonFile(filePath)) ?? {};
+  const existing = await readSettingsForMerge(filePath);
   const merged = deepMerge(existing, data);
   await gate.write(filePath, JSON.stringify(merged, null, 2));
 }
@@ -516,7 +544,24 @@ async function applyClaudeJson(opts: ClaudeJsonOpts): Promise<void> {
   const info = opts.info ?? ((): void => undefined);
   const data =
     decisions.length > 0 ? remapClaudeJsonPaths(opts.data, decisions, warn, info) : opts.data;
-  await applySettingsAt(filePath, data, opts.mode, opts.gate);
+
+  if (opts.mode === 'overwrite') {
+    await applySettingsAt(filePath, data, opts.mode, opts.gate);
+    return;
+  }
+
+  // merge: standard deep-merge, EXCEPT `recentProjects` is replace-not-union.
+  // The default `deepMerge` Set-unions string arrays; for `recentProjects`
+  // (typically an array of objects with `path` keys, but historically also
+  // an array of strings) that produces stale cross-machine paths leaking
+  // through after fix-paths runs. Always trust the incoming list.
+  await opts.gate.mkdir(dirname(filePath), { recursive: true });
+  const existing = await readSettingsForMerge(filePath);
+  const merged = deepMerge(existing, data);
+  if (isObject(data) && 'recentProjects' in data && isObject(merged)) {
+    merged.recentProjects = data.recentProjects;
+  }
+  await opts.gate.write(filePath, JSON.stringify(merged, null, 2));
 }
 
 // ---------------------------------------------------------------------------

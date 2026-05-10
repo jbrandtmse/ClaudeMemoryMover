@@ -27,6 +27,7 @@ export default tseslint.config(
   // legitimately need one of the restricted imports.
   {
     files: ['src/**/*.ts'],
+    // test files need direct fs access for fixture setup — exemption ratified Story 3.0
     ignores: ['src/**/*.test.ts'],
     rules: {
       'no-restricted-imports': ['error', {

@@ -95,6 +95,34 @@ export async function readClaudeJsonFile(path: string): Promise<unknown> {
   return safeParseJson(text);
 }
 
+/**
+ * Read a settings-style JSON file into a plain object, distinguishing absent
+ * (ENOENT → `undefined`) from malformed (parse failure → `'malformed'` sentinel).
+ * The legacy `readClaudeJsonFile` collapses both into `undefined`, which causes
+ * a corrupt settings file to be silently treated as empty on the next merge —
+ * exactly the bypass Story 3.0 AC #7 closes. Callers must explicitly handle
+ * the `'malformed'` case (typically by throwing CmemmovError INTERNAL upstream).
+ */
+export async function readSettingsFileStrict(
+  path: string,
+): Promise<Record<string, unknown> | undefined | 'malformed'> {
+  const text = await safeReadFile(path);
+  if (text === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    // Non-object JSON (array, primitive, null) is structurally wrong for a
+    // settings file — the merger has no sensible base to merge into. Surface
+    // it the same as parse failure so the caller fails loudly instead of
+    // silently clobbering with the incoming data.
+    return 'malformed';
+  } catch {
+    return 'malformed';
+  }
+}
+
 async function readSessionFile(filePath: string): Promise<SessionFile> {
   let content: string;
   try {

@@ -12,6 +12,10 @@ describe('no-process-env-home', () => {
       valid: [
         { code: 'import os from "node:os"; const h = os.homedir();' },
         { code: 'const x = process.env.PATH;' },
+        // Non-HOME destructuring of process.env is allowed.
+        { code: 'const { PATH } = process.env;' },
+        // Destructuring HOME from a non-process.env object is allowed.
+        { code: 'const myObj = { HOME: "x" }; const { HOME } = myObj;' },
       ],
       invalid: [
         {
@@ -20,6 +24,16 @@ describe('no-process-env-home', () => {
         },
         {
           code: "const h = process.env['HOME'];",
+          errors: [{ messageId: 'useOsHomedir' }],
+        },
+        // Destructuring bypass: `const { HOME } = process.env;`
+        {
+          code: 'const { HOME } = process.env;',
+          errors: [{ messageId: 'useOsHomedir' }],
+        },
+        // Computed env access: `process['env'].HOME`
+        {
+          code: "const h = process['env'].HOME;",
           errors: [{ messageId: 'useOsHomedir' }],
         },
       ],

@@ -103,6 +103,116 @@ describe('applyCategory — globalMemory', () => {
   });
 });
 
+describe('deepMerge array strategy (Story 3.0 AC #6)', () => {
+  it('merge: object arrays are replaced, not Set-deduped (no logical duplicates)', async () => {
+    // Two identical-by-content hook objects must NOT be doubled. Set-based
+    // dedup uses reference equality and silently produces logical duplicates
+    // for objects; the fix is to replace the array when not all elements are
+    // strings.
+    await writeFile(
+      join(claudeDir, 'settings.json'),
+      JSON.stringify({ hooks: [{ cmd: 'a' }] }),
+      'utf8',
+    );
+    const captured: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'globalSettings',
+      mode: 'merge',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: { hooks: [{ cmd: 'a' }] },
+    });
+    const raw = getCapturedContent(captured, (p) => p.endsWith('settings.json'));
+    const written = JSON.parse(raw) as { hooks: { cmd: string }[] };
+    expect(written.hooks).toEqual([{ cmd: 'a' }]);
+  });
+
+  it('merge: string arrays are still de-duped via Set (existing AC1 behavior preserved)', async () => {
+    await writeFile(
+      join(claudeDir, 'settings.json'),
+      JSON.stringify({ permissions: { allow: ['Read(/a)', 'Bash(npm:*)'] } }),
+      'utf8',
+    );
+    const captured: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'globalSettings',
+      mode: 'merge',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: { permissions: { allow: ['Read(/a)', 'Read(/b)'] } },
+    });
+    const raw = getCapturedContent(captured, (p) => p.endsWith('settings.json'));
+    const written = JSON.parse(raw) as { permissions: { allow: string[] } };
+    // De-duped + unioned (Read(/a) appears once, Bash and Read(/b) preserved).
+    expect(new Set(written.permissions.allow)).toEqual(
+      new Set(['Read(/a)', 'Bash(npm:*)', 'Read(/b)']),
+    );
+  });
+});
+
+describe('applySettingsAt malformed file (Story 3.0 AC #7)', () => {
+  it('merge: throws INTERNAL when target settings file is malformed; no write occurs', async () => {
+    // Write a corrupt JSON file. The previous implementation would silently
+    // treat parse failure as `{}` and clobber on next merge — this test pins
+    // the new fail-loudly behavior.
+    await writeFile(join(claudeDir, 'settings.json'), '{ this: is: not: json', 'utf8');
+    const captured: { path: string; content: string }[] = [];
+    let thrown: unknown;
+    try {
+      await applyCategory({
+        category: 'globalSettings',
+        mode: 'merge',
+        targetDir: claudeDir,
+        gate: makeCapturingGate(captured),
+        data: { added: 'new' },
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeDefined();
+    expect((thrown as { code?: string }).code).toBe('INTERNAL');
+    // No write happened — the corrupt file is preserved as-is for inspection.
+    expect(captured.find((c) => c.path.endsWith('settings.json'))).toBeUndefined();
+  });
+
+  it('merge: ENOENT (file absent) is unchanged — treats as empty base and writes incoming', async () => {
+    // No settings.json on disk. Merge must succeed with incoming data only.
+    const captured: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'globalSettings',
+      mode: 'merge',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: { added: 'new' },
+    });
+    const raw = getCapturedContent(captured, (p) => p.endsWith('settings.json'));
+    expect(JSON.parse(raw)).toEqual({ added: 'new' });
+  });
+
+  it('merge: throws INTERNAL when target settings file is a top-level array (structurally non-object)', async () => {
+    // A settings.json containing a top-level array, primitive, or null is
+    // structurally wrong — there is no sensible base to merge into. Surface
+    // it the same as parse failure rather than silently clobbering.
+    await writeFile(join(claudeDir, 'settings.json'), '[1, 2, 3]', 'utf8');
+    const captured: { path: string; content: string }[] = [];
+    let thrown: unknown;
+    try {
+      await applyCategory({
+        category: 'globalSettings',
+        mode: 'merge',
+        targetDir: claudeDir,
+        gate: makeCapturingGate(captured),
+        data: { added: 'new' },
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeDefined();
+    expect((thrown as { code?: string }).code).toBe('INTERNAL');
+    expect(captured.find((c) => c.path.endsWith('settings.json'))).toBeUndefined();
+  });
+});
+
 describe('applyCategory — globalSettings', () => {
   it('merge: incoming fields merged, existing fields preserved', async () => {
     await writeFile(
@@ -489,11 +599,49 @@ describe('applyCategory — claudeJson', () => {
     expect(merged.added).toBe('new');
     // deepMerge precedence: source (incoming) wins on scalar collisions.
     expect(merged.shared).toBe('incoming');
-    // Arrays are unioned (de-duped) by deepMerge.
-    expect(merged.recentProjects).toEqual(
-      expect.arrayContaining(['/old/proj', '/new/proj']),
-    );
+    // Story 3.0 AC #8: `recentProjects` is replace-not-union (stale cross-machine
+    // entries must not leak through fix-paths). Incoming wins verbatim.
+    expect(merged.recentProjects).toEqual(['/new/proj']);
     // Cleanup the file we wrote outside claudeDir tmp.
+    await rm(claudeJsonPath, { force: true });
+  });
+
+  it('merge: recentProjects is replaced by incoming, not unioned (Story 3.0 AC #8)', async () => {
+    // Stale cross-machine paths must NOT leak through after fix-paths. The
+    // generic deepMerge unions arrays; recentProjects must override that.
+    const claudeJsonPath = `${claudeDir}.json`;
+    await writeFile(
+      claudeJsonPath,
+      JSON.stringify({
+        firstStartTime: '2026-01-01',
+        recentProjects: [
+          { path: '/old/host/proj-a', lastOpened: '2026-01-01' },
+          { path: '/old/host/proj-b', lastOpened: '2026-01-02' },
+        ],
+      }),
+      'utf8',
+    );
+    const captured: { path: string; content: string }[] = [];
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'merge',
+      targetDir: claudeDir,
+      gate: makeCapturingGate(captured),
+      data: {
+        recentProjects: [{ path: '/new/host/proj-a', lastOpened: '2026-05-09' }],
+      },
+    });
+    const raw = getCapturedContent(captured, (p) => p === claudeJsonPath);
+    const written = JSON.parse(raw) as {
+      firstStartTime: string;
+      recentProjects: { path: string }[];
+    };
+    // Incoming recentProjects wins verbatim — no stale `/old/host/*` leaks.
+    expect(written.recentProjects).toEqual([
+      { path: '/new/host/proj-a', lastOpened: '2026-05-09' },
+    ]);
+    // Other fields still merge normally.
+    expect(written.firstStartTime).toBe('2026-01-01');
     await rm(claudeJsonPath, { force: true });
   });
 

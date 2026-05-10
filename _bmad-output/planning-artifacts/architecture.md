@@ -349,7 +349,9 @@ Everything else — file I/O, atomic writes, JSON, gzip, path resolution, slug e
   - Ban hardcoded `'\\'` or `'/'` literals in path-handling code — must use `path.sep`, `path.join`, etc.
   - Require `await` on all `fs/promises` calls
   - Ban raw `JSON.parse` outside the bundle parser — must go through the Zod schema
-- Custom rules implemented as a small local ESLint plugin in `eslint-plugin-cmemmov/`
+- Custom rules implemented as a small local rule directory at `eslint-rules/` (loaded via the flat-config `plugins` field; not a published npm package)
+- Test files are exempt from `no-restricted-imports` so fixture setup and mock injection can use direct `fs/promises` access. Two slightly different mechanisms: `src/**/*.test.ts` is explicitly listed in the rule block's `ignores`; `tests/**/*.test.ts` lives outside the rule block's `files: ['src/**/*.ts']` selector and is therefore never matched by the rule. Both forms are intentional and ratified in Story 3.0.
+- Build/config touchpoint: `tsconfig.json` enables `resolveJsonModule: true` so service modules can `import pkg from '../package.json'` for the `cmemmov --version` flag (added in Story 1.3)
 
 **Pre-commit hooks — none initially:**
 
@@ -475,7 +477,7 @@ Everything else — file I/O, atomic writes, JSON, gzip, path resolution, slug e
 | Rule | How Enforced |
 | --- | --- |
 | Naming conventions | ESLint (`@typescript-eslint/naming-convention`) |
-| No `console.*` outside Output module | Custom ESLint rule (`eslint-plugin-cmemmov`) |
+| No `console.*` outside Output module | Custom ESLint rule (loaded from `eslint-rules/`) |
 | No `process.env.HOME` | Custom ESLint rule |
 | No hardcoded path separators | Custom ESLint rule (regex on string literals in path-handling files) |
 | No raw `JSON.parse` outside bundle parser | Custom ESLint rule (file-scoped) |
@@ -916,3 +918,7 @@ The PRD's primary risk (silent data loss / orphaned project memories) is archite
 8. `ui/output.ts` + `ui/prompts.ts`
 9. Commands in dependency order: `export` → `import` → `fix-paths` → `share` → `rollback` → `completion`
 10. CI matrix + release pipeline + Node SEA binary build
+
+## Revision History
+
+- 2026-05-09 — Architecture review pass (Story 3.0): verified `suggestRemap` return type is `string | null` (matches Story 2.1 fix); replaced `eslint-plugin-cmemmov/` references with the actual `eslint-rules/` directory layout; documented `tsconfig.json: resolveJsonModule: true` (introduced in Story 1.3); added the Code Quality note ratifying the test-file exemption from `no-restricted-imports` (introduced in Story 1.5). No remaining drift found from Stories 2.0–2.4.

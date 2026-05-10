@@ -1,4 +1,4 @@
-const BANNED_IDENTIFIERS = new Set(['log', 'error', 'warn']);
+const BANNED_IDENTIFIERS = new Set(['log', 'error', 'warn', 'info', 'debug', 'trace', 'table', 'dir']);
 const ALLOWED_SUFFIX = ['src/ui/output.ts', 'src\\ui\\output.ts'];
 
 /** @type {import('eslint').Rule.RuleModule} */

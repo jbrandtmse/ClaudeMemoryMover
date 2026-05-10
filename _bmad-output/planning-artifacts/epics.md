@@ -1039,7 +1039,9 @@ So that the central differentiator is regression-protected by mechanical asserti
 
 **Given** a successful cross-OS import test
 **When** assertions run
-**Then** project directories under target `~/.claude/projects/` use the target-OS slug encoding; `settings.json` permission rules contain target-OS-style paths; `~/.claude.json` global state path fields are target-OS-style; `MEMORY.md` indexes match the on-disk file layout
+**Then** project directories under target `~/.claude/projects/` retain the source slug as the stable directory identifier — the directory name does NOT change on cross-OS import (slugs are content-addressing keys; renaming would orphan memories and session history); `settings.json` permission rules contain target-OS-style paths; `~/.claude.json` global state path fields are target-OS-style; `MEMORY.md` indexes match the on-disk file layout
+
+> **Dev note (Story 3.0 correction, 2026-05-09):** the source slug is stable because `pathToSlug` applied to the source path produces the canonical key for that project's history. Renaming the directory under target `~/.claude/projects/` to a target-OS-encoded slug would orphan the memories and session JSONL files keyed under the source slug.
 
 **Given** a cross-OS test scenario where the user (simulated) skips one project
 **When** the test runs
