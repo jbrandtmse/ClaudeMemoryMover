@@ -92,7 +92,7 @@ development_status:
   3-1-project-inventory-slug-decode-scan: done
   3-2-auto-suggestion-interactive-remap-flow: done
   3-3-apply-renames-update-claude-json-backup: done
-  3-4-fix-paths-integration-tests: review
+  3-4-fix-paths-integration-tests: done
   epic-3-retrospective: optional
 
   # Epic 4: Team Sharing & Sanitization (Taylor's Journey)
