@@ -92,6 +92,18 @@ vi.mock('../services/claude-locator.js', () => ({
   })),
 }));
 
+// Story 3.3: readSettingsFileStrict is mocked alongside resolveOriginalPath so
+// the apply phase can read ~/.claude.json without touching disk. Hoisted so
+// tests can override per-case via `mockReadSettingsFileStrict.mockResolvedValueOnce(...)`.
+// The strict reader distinguishes ENOENT (→ undefined) from malformed JSON
+// (→ 'malformed') from a real parsed object — fix-paths uses each branch.
+type StrictReadResult = Record<string, unknown> | undefined | 'malformed';
+const mockReadSettingsFileStrict = vi.hoisted(() =>
+  vi.fn<(path: string) => Promise<StrictReadResult>>(() =>
+    Promise.resolve({ lastSessionCwd: '/home/jordan/moved-app' }),
+  ),
+);
+
 vi.mock('../services/claude-reader.js', () => ({
   resolveOriginalPath: vi.fn((slug: string) => {
     const r = state.resolveBySlug.get(slug);
@@ -100,13 +112,67 @@ vi.mock('../services/claude-reader.js', () => ({
     }
     return Promise.resolve(r);
   }),
+  readSettingsFileStrict: mockReadSettingsFileStrict,
 }));
 
 vi.mock('../ui/prompts.js', () => ({
   promptRemapDecision: mockPromptRemapDecision,
 }));
 
-import { collectRemapDecisions, run, scanProjects, type ProjectInventoryEntry } from './fix-paths.js';
+// Story 3.3: backup-service, write-gate, claude-writer mocks for the apply phase.
+const mockCreateBackup = vi.hoisted(() =>
+  vi.fn<(claudeDir: string) => Promise<string>>(() =>
+    Promise.resolve('/home/jordan/.claude/backups/cmemmov/2026-mock'),
+  ),
+);
+vi.mock('../services/backup-service.js', () => ({
+  createBackup: mockCreateBackup,
+}));
+
+interface MockGate {
+  write: ReturnType<typeof vi.fn>;
+  rename: ReturnType<typeof vi.fn>;
+  mkdir: ReturnType<typeof vi.fn>;
+  remove: ReturnType<typeof vi.fn>;
+  recordedOps: ReturnType<typeof vi.fn>;
+}
+const mockLiveGate = vi.hoisted<MockGate>(() => ({
+  write: vi.fn(() => Promise.resolve()),
+  rename: vi.fn(() => Promise.resolve()),
+  mkdir: vi.fn(() => Promise.resolve()),
+  remove: vi.fn(() => Promise.resolve()),
+  recordedOps: vi.fn(() => []),
+}));
+const mockDryRunGate = vi.hoisted<MockGate>(() => ({
+  write: vi.fn(() => Promise.resolve()),
+  rename: vi.fn(() => Promise.resolve()),
+  mkdir: vi.fn(() => Promise.resolve()),
+  remove: vi.fn(() => Promise.resolve()),
+  recordedOps: vi.fn(() => []),
+}));
+const mockMakeLiveWriteGate = vi.hoisted(() => vi.fn(() => mockLiveGate));
+const mockMakeDryRunWriteGate = vi.hoisted(() => vi.fn(() => mockDryRunGate));
+vi.mock('../services/write-gate.js', () => ({
+  makeLiveWriteGate: mockMakeLiveWriteGate,
+  makeDryRunWriteGate: mockMakeDryRunWriteGate,
+}));
+
+const mockApplyCategory = vi.hoisted(() =>
+  vi.fn<(opts: unknown) => Promise<void>>(() => Promise.resolve()),
+);
+vi.mock('../services/claude-writer.js', () => ({
+  applyCategory: mockApplyCategory,
+}));
+
+import {
+  applyDecisions,
+  collectRemapDecisions,
+  run,
+  scanProjects,
+  type ProjectInventoryEntry,
+  type RemapDecision,
+} from './fix-paths.js';
+import type { Output } from '../ui/output.js';
 
 function dir(name: string): FakeDirent {
   return { name, isDirectory: (): boolean => true };
@@ -140,6 +206,28 @@ function resetState(): void {
   state.statPaths = new Map();
   state.resolveBySlug = new Map();
   mockPromptRemapDecision.mockReset();
+  // Story 3.3 apply-phase mocks: clear call history and restore default
+  // resolutions so each test starts from a clean slate.
+  mockCreateBackup.mockClear();
+  mockCreateBackup.mockResolvedValue('/home/jordan/.claude/backups/cmemmov/2026-mock');
+  mockReadSettingsFileStrict.mockReset();
+  mockReadSettingsFileStrict.mockResolvedValue({ lastSessionCwd: '/home/jordan/moved-app' });
+  mockLiveGate.write.mockClear();
+  mockLiveGate.rename.mockClear();
+  mockLiveGate.mkdir.mockClear();
+  mockLiveGate.remove.mockClear();
+  mockLiveGate.recordedOps.mockReset();
+  mockLiveGate.recordedOps.mockReturnValue([]);
+  mockDryRunGate.write.mockClear();
+  mockDryRunGate.rename.mockClear();
+  mockDryRunGate.mkdir.mockClear();
+  mockDryRunGate.remove.mockClear();
+  mockDryRunGate.recordedOps.mockReset();
+  mockDryRunGate.recordedOps.mockReturnValue([]);
+  mockMakeLiveWriteGate.mockClear();
+  mockMakeDryRunWriteGate.mockClear();
+  mockApplyCategory.mockClear();
+  mockApplyCategory.mockResolvedValue(undefined);
 }
 
 beforeEach(() => {
@@ -255,8 +343,9 @@ describe('AC4+AC9(d): one NOT FOUND project via sessionCwd', () => {
     const stdoutText = stdoutSpy.mock.calls
       .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
       .join('');
-    // After Story 3.2: summary reflects collected decisions, not raw missing count.
-    expect(stdoutText).toContain('0 project(s) will be renamed.');
+    // Story 3.3: summary reports renamed/skipped counts and backup path.
+    // No remaps → applyDecisions short-circuits → backupPath is null → "Backup: none".
+    expect(stdoutText).toContain('0 project(s) renamed, 1 skipped. Backup: none');
 
     stdoutSpy.mockRestore();
   });
@@ -339,7 +428,8 @@ describe('AC9(g): mixed tree (some FOUND, some NOT FOUND) — exits 0', () => {
     const stdoutText = stdoutSpy.mock.calls
       .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
       .join('');
-    expect(stdoutText).toContain('0 project(s) will be renamed.');
+    // Story 3.3: summary reports renamed/skipped counts and backup path.
+    expect(stdoutText).toContain('0 project(s) renamed, 1 skipped. Backup: none');
 
     stdoutSpy.mockRestore();
   });
@@ -407,8 +497,8 @@ describe('AC6+AC9(h): --json mode → out.finish receives extra.projects', () =>
     };
     expect(parsed.summary.projects).toHaveLength(1);
     expect(parsed.summary.projects[0]?.exists).toBe(false);
-    // Story 3.2: summary text reflects collected remap decisions, not raw missing count.
-    expect(parsed.summary.text).toContain('0 project(s) will be renamed.');
+    // Story 3.3: summary text reports renamed/skipped counts and backup path.
+    expect(parsed.summary.text).toContain('0 project(s) renamed, 1 skipped. Backup: none');
 
     stdoutSpy.mockRestore();
   });
@@ -696,7 +786,14 @@ describe('AC8(h): --json mode includes summary.remappings', () => {
     expect(Array.isArray(parsed.summary.remappings)).toBe(true);
     expect(parsed.summary.remappings).toHaveLength(1);
     expect(parsed.summary.remappings[0]?.action).toBe('remap');
-    expect(parsed.summary.text).toContain('1 project(s) will be renamed.');
+    // Story 3.3: summary now includes backup path; mocked createBackup returns
+    // a fixed path so we can assert it lands in the human summary string.
+    expect(parsed.summary.text).toContain('1 project(s) renamed, 0 skipped. Backup:');
+    // backupPath is exposed as its own JSON field too.
+    const parsedFull = parsed as unknown as { summary: { backupPath: string | null } };
+    expect(parsedFull.summary.backupPath).toBe(
+      '/home/jordan/.claude/backups/cmemmov/2026-mock',
+    );
 
     stdoutSpy.mockRestore();
   });
@@ -723,14 +820,324 @@ describe('AC7: --dry-run collects decisions but emits dry-run notice', () => {
     const stderrText = stderrSpy.mock.calls
       .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
       .join('');
+    // Story 3.3: dry-run notice is now followed by the would-be op list.
     expect(stderrText).toContain('[dry-run] No changes applied.');
 
     const stdoutText = stdoutSpy.mock.calls
       .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
       .join('');
-    expect(stdoutText).toContain('1 project(s) will be renamed.');
+    // Story 3.3: dry-run summary marks backup as "[dry-run]" since no backup is created.
+    expect(stdoutText).toContain('1 project(s) renamed, 0 skipped. Backup: [dry-run]');
 
     stderrSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Story 3.3: Apply phase — rename project dirs + update .claude.json + backup
+// -----------------------------------------------------------------------------
+
+// `applyDecisions` takes an Output instance directly. Tests substitute a stub
+// so we can assert exact calls to progress/warn without scraping process.stderr.
+function makeMockOutput(): {
+  output: Output;
+  progress: ReturnType<typeof vi.fn>;
+  warn: ReturnType<typeof vi.fn>;
+  finish: ReturnType<typeof vi.fn>;
+  error: ReturnType<typeof vi.fn>;
+} {
+  const progress = vi.fn();
+  const warn = vi.fn();
+  const finish = vi.fn();
+  const error = vi.fn();
+  // Cast through `unknown` because Output uses private fields that the stub
+  // can't replicate; applyDecisions only ever calls the four public methods.
+  const output = { progress, warn, finish, error } as unknown as Output;
+  return { output, progress, warn, finish, error };
+}
+
+describe('AC9(a): applyDecisions — single remap → backup created, rename called', () => {
+  it('createBackup called, gate.rename called with correct slugs, applyCategory invoked', async () => {
+    const d: RemapDecision = {
+      slug: '-home-jordan-old-app',
+      originalPath: '/home/jordan/old-app',
+      targetPath: '/home/jordan/new-app',
+      action: 'remap',
+    };
+    const { output } = makeMockOutput();
+
+    const result = await applyDecisions([d], CLAUDE_DIR, {}, output);
+
+    expect(mockCreateBackup).toHaveBeenCalledWith(CLAUDE_DIR);
+    expect(mockMakeLiveWriteGate).toHaveBeenCalledTimes(1);
+    expect(mockMakeDryRunWriteGate).not.toHaveBeenCalled();
+
+    const expectedOldSlugDir = join(CLAUDE_DIR, 'projects', '-home-jordan-old-app');
+    const expectedNewSlugDir = join(CLAUDE_DIR, 'projects', '-home-jordan-new-app');
+    expect(mockLiveGate.rename).toHaveBeenCalledWith(expectedOldSlugDir, expectedNewSlugDir);
+
+    expect(mockApplyCategory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: 'claudeJson',
+        mode: 'overwrite',
+        targetDir: CLAUDE_DIR,
+        gate: mockLiveGate,
+      }),
+    );
+
+    expect(result.backupPath).toBe('/home/jordan/.claude/backups/cmemmov/2026-mock');
+    expect(result.warnings).toEqual([]);
+  });
+});
+
+describe('AC9(b): applyDecisions — collision → INTERNAL thrown, no rename', () => {
+  it('throws CmemmovError INTERNAL when target slug already exists', async () => {
+    const d: RemapDecision = {
+      slug: '-home-jordan-old-app',
+      originalPath: '/home/jordan/old-app',
+      targetPath: '/home/jordan/new-app',
+      action: 'remap',
+    };
+    // Pre-populate the target slug dir so the pre-flight `stat()` resolves
+    // (the mocked node:fs/promises uses state.statPaths to drive stat).
+    state.statPaths.set(
+      join(CLAUDE_DIR, 'projects', '-home-jordan-new-app'),
+      existingDirStat(),
+    );
+    const { output } = makeMockOutput();
+
+    await expect(applyDecisions([d], CLAUDE_DIR, {}, output)).rejects.toMatchObject({
+      code: 'INTERNAL',
+    });
+
+    // Backup is created before the collision check so it's available for rollback.
+    expect(mockCreateBackup).toHaveBeenCalled();
+    // Critical: no rename was attempted (collision detected upfront).
+    expect(mockLiveGate.rename).not.toHaveBeenCalled();
+    expect(mockApplyCategory).not.toHaveBeenCalled();
+  });
+});
+
+describe('AC9(c): applyDecisions — missing .claude.json → warning emitted, no throw', () => {
+  it('directory renamed; warning emitted; applyCategory not called', async () => {
+    const d: RemapDecision = {
+      slug: '-home-jordan-old-app',
+      originalPath: '/home/jordan/old-app',
+      targetPath: '/home/jordan/new-app',
+      action: 'remap',
+    };
+    // ~/.claude.json absent → readSettingsFileStrict resolves to undefined.
+    mockReadSettingsFileStrict.mockResolvedValueOnce(undefined);
+    const { output, warn } = makeMockOutput();
+
+    const result = await applyDecisions([d], CLAUDE_DIR, {}, output);
+
+    // Rename still happened — only the .claude.json sync was skipped.
+    expect(mockLiveGate.rename).toHaveBeenCalled();
+    expect(mockApplyCategory).not.toHaveBeenCalled();
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('`~/.claude.json` not found'),
+    );
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain('`~/.claude.json` not found');
+    expect(result.backupPath).toBe('/home/jordan/.claude/backups/cmemmov/2026-mock');
+  });
+});
+
+describe('AC9(d): applyDecisions — orphaned slug → warn callback fires from applyCategory', () => {
+  it('warn callback passed to applyCategory accumulates into result.warnings', async () => {
+    const d: RemapDecision = {
+      slug: '-home-jordan-old-app',
+      originalPath: '/home/jordan/old-app',
+      targetPath: '/home/jordan/new-app',
+      action: 'remap',
+    };
+    // Simulate applyCategory firing its `warn` callback for an unmatched
+    // path — this is exactly how remapClaudeJsonPaths surfaces orphaned slugs.
+    mockApplyCategory.mockImplementationOnce(
+      async (opts: unknown): Promise<void> => {
+        const o = opts as { warn?: (m: string) => void };
+        o.warn?.('No remap rule matched .claude.json lastSessionCwd: /home/jordan/orphan');
+        return Promise.resolve();
+      },
+    );
+    const { output } = makeMockOutput();
+
+    const result = await applyDecisions([d], CLAUDE_DIR, {}, output);
+
+    expect(result.warnings).toEqual([
+      'No remap rule matched .claude.json lastSessionCwd: /home/jordan/orphan',
+    ]);
+    // Rename completed regardless — warnings do not abort the apply phase.
+    expect(mockLiveGate.rename).toHaveBeenCalled();
+  });
+});
+
+describe('AC9(e): applyDecisions — dry-run → gate ops recorded, backup not created', () => {
+  it('uses dry-run gate, createBackup not called, recordedOps emitted as progress', async () => {
+    const d: RemapDecision = {
+      slug: '-home-jordan-old-app',
+      originalPath: '/home/jordan/old-app',
+      targetPath: '/home/jordan/new-app',
+      action: 'remap',
+    };
+    const opPath = {
+      kind: 'rename' as const,
+      from: join(CLAUDE_DIR, 'projects', '-home-jordan-old-app'),
+      to: join(CLAUDE_DIR, 'projects', '-home-jordan-new-app'),
+    };
+    mockDryRunGate.recordedOps.mockReturnValue([opPath]);
+    const { output, progress } = makeMockOutput();
+
+    const result = await applyDecisions([d], CLAUDE_DIR, { dryRun: true }, output);
+
+    expect(mockCreateBackup).not.toHaveBeenCalled();
+    expect(mockMakeDryRunWriteGate).toHaveBeenCalled();
+    expect(mockMakeLiveWriteGate).not.toHaveBeenCalled();
+    expect(mockDryRunGate.rename).toHaveBeenCalled();
+    expect(result.backupPath).toBeNull();
+
+    // The recorded-ops summary should have been emitted via progress.
+    const allProgress = progress.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allProgress.some((m) => m.includes('[dry-run] No changes applied'))).toBe(true);
+    expect(
+      allProgress.some(
+        (m) => m.startsWith('  rename:') && m.includes('-home-jordan-old-app'),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('AC9(f): applyDecisions — all skip/no-op → returns immediately, no backup', () => {
+  it('no remap decisions → backupPath null, no createBackup, no rename', async () => {
+    const decisions: RemapDecision[] = [
+      { slug: 'a', originalPath: '/p/a', targetPath: null, action: 'skip' },
+      { slug: 'b', originalPath: '/p/b', targetPath: null, action: 'no-op' },
+    ];
+    const { output } = makeMockOutput();
+
+    const result = await applyDecisions(decisions, CLAUDE_DIR, {}, output);
+
+    expect(result.backupPath).toBeNull();
+    expect(result.warnings).toEqual([]);
+    expect(mockCreateBackup).not.toHaveBeenCalled();
+    expect(mockMakeLiveWriteGate).not.toHaveBeenCalled();
+    expect(mockMakeDryRunWriteGate).not.toHaveBeenCalled();
+    expect(mockLiveGate.rename).not.toHaveBeenCalled();
+    expect(mockApplyCategory).not.toHaveBeenCalled();
+  });
+});
+
+describe('Review fix: malformed .claude.json → INTERNAL thrown BEFORE any rename', () => {
+  it('readSettingsFileStrict returns "malformed" → CmemmovError INTERNAL, no rename', async () => {
+    const d: RemapDecision = {
+      slug: '-home-jordan-old-app',
+      originalPath: '/home/jordan/old-app',
+      targetPath: '/home/jordan/new-app',
+      action: 'remap',
+    };
+    // Strict reader signals malformed JSON via the 'malformed' sentinel.
+    // Fix-paths must surface this as INTERNAL rather than silently treating
+    // it as "file not found" (the legacy collapse). Critically, this must
+    // happen BEFORE the rename loop — otherwise the user is left with a
+    // half-state (dirs renamed, .claude.json still stale) that is harder to
+    // unwind than a clean abort.
+    mockReadSettingsFileStrict.mockResolvedValueOnce('malformed');
+    const { output } = makeMockOutput();
+
+    await expect(applyDecisions([d], CLAUDE_DIR, {}, output)).rejects.toMatchObject({
+      code: 'INTERNAL',
+    });
+
+    // Backup still created (it precedes the .claude.json read) so the user can rollback.
+    expect(mockCreateBackup).toHaveBeenCalled();
+    // Critical: NO rename was attempted — pre-flight aborts on malformed JSON.
+    expect(mockLiveGate.rename).not.toHaveBeenCalled();
+    // applyCategory must NOT be called — we refuse to write atop malformed JSON.
+    expect(mockApplyCategory).not.toHaveBeenCalled();
+  });
+});
+
+describe('Review fix: intra-batch target collision → INTERNAL thrown, no rename', () => {
+  it('two remap decisions targeting the same slug → INTERNAL before any rename', async () => {
+    // Both decisions resolve to the same target slug `-home-jordan-shared`.
+    // Pre-flight must catch this before any rename runs — otherwise the first
+    // rename succeeds, the second fails on the (now-existing) target dir, and
+    // we are left in a half-renamed state.
+    const d1: RemapDecision = {
+      slug: '-home-jordan-old-a',
+      originalPath: '/home/jordan/old-a',
+      targetPath: '/home/jordan/shared',
+      action: 'remap',
+    };
+    const d2: RemapDecision = {
+      slug: '-home-jordan-old-b',
+      originalPath: '/home/jordan/old-b',
+      targetPath: '/home/jordan/shared',
+      action: 'remap',
+    };
+    const { output } = makeMockOutput();
+
+    await expect(applyDecisions([d1, d2], CLAUDE_DIR, {}, output)).rejects.toMatchObject({
+      code: 'INTERNAL',
+    });
+
+    // Backup is created before pre-flight so it remains for rollback.
+    expect(mockCreateBackup).toHaveBeenCalled();
+    // Critical: NO rename was attempted — pre-flight detected the in-batch dup.
+    expect(mockLiveGate.rename).not.toHaveBeenCalled();
+    expect(mockApplyCategory).not.toHaveBeenCalled();
+  });
+});
+
+describe('AC9(g): run({ json: true }) → out.finish receives backupPath and warnings', () => {
+  it('JSON summary includes projects, remappings, backupPath, and warnings fields', async () => {
+    const slug = '-home-jordan-moved-app';
+    const decoded = '/home/jordan/moved-app';
+    state.readdirDirent.set(PROJECTS_DIR, [dir(slug)]);
+    state.resolveBySlug.set(slug, { path: decoded, source: 'sessionCwd' });
+    // `decoded` not registered in statPaths → exists: false (project missing).
+    const candidate = join(HOME, 'dev', 'moved-app');
+    state.statPaths.set(candidate, existingDirStat());
+    mockPromptRemapDecision.mockResolvedValue({ action: 'accept', path: candidate });
+    // Force a warning from applyCategory to verify it propagates into JSON output.
+    mockApplyCategory.mockImplementationOnce(
+      async (opts: unknown): Promise<void> => {
+        const o = opts as { warn?: (m: string) => void };
+        o.warn?.('orphaned recentProjects entry: /tmp/gone');
+        return Promise.resolve();
+      },
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await run({ json: true });
+
+    const stdoutText = stdoutSpy.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : Buffer.from(c[0]).toString('utf8')))
+      .join('');
+    const lastLine = stdoutText.split('\n').filter((l) => l.length > 0).pop() ?? '';
+    const parsed = JSON.parse(lastLine) as {
+      success: boolean;
+      summary: {
+        text: string;
+        projects: unknown[];
+        remappings: { action: string }[];
+        backupPath: string | null;
+        warnings: string[];
+      };
+    };
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.summary.projects).toHaveLength(1);
+    expect(parsed.summary.remappings).toHaveLength(1);
+    expect(parsed.summary.remappings[0]?.action).toBe('remap');
+    expect(parsed.summary.backupPath).toBe('/home/jordan/.claude/backups/cmemmov/2026-mock');
+    expect(parsed.summary.warnings).toEqual(['orphaned recentProjects entry: /tmp/gone']);
+    expect(parsed.summary.text).toContain('1 project(s) renamed, 0 skipped. Backup:');
+
     stdoutSpy.mockRestore();
   });
 });

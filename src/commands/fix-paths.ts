@@ -1,9 +1,12 @@
 import { readdir, stat } from 'node:fs/promises';
 import { basename, dirname, join, posix, win32 } from 'node:path';
 import { CmemmovError } from '../core/error.js';
-import { findMatchingDir } from '../core/path-engine.js';
+import { findMatchingDir, pathToSlug } from '../core/path-engine.js';
+import { createBackup } from '../services/backup-service.js';
 import { locateClaude } from '../services/claude-locator.js';
-import { resolveOriginalPath } from '../services/claude-reader.js';
+import { readSettingsFileStrict, resolveOriginalPath } from '../services/claude-reader.js';
+import { applyCategory } from '../services/claude-writer.js';
+import { makeDryRunWriteGate, makeLiveWriteGate } from '../services/write-gate.js';
 import { Output } from '../ui/output.js';
 import { promptRemapDecision } from '../ui/prompts.js';
 
@@ -193,6 +196,144 @@ export async function collectRemapDecisions(
   return decisions;
 }
 
+export async function applyDecisions(
+  decisions: RemapDecision[],
+  claudeDir: string,
+  opts: FixPathsOpts,
+  out: Output,
+): Promise<{ backupPath: string | null; warnings: string[] }> {
+  const toRename = decisions.filter((d) => d.action === 'remap');
+
+  if (toRename.length === 0) {
+    return { backupPath: null, warnings: [] };
+  }
+
+  const gate =
+    opts.dryRun === true
+      ? makeDryRunWriteGate()
+      : makeLiveWriteGate((msg) => {
+          out.warn(msg);
+        });
+
+  // 1. Backup before any write (skip in dry-run — nothing will actually change)
+  let backupPath: string | null = null;
+  if (opts.dryRun !== true) {
+    backupPath = await createBackup(claudeDir);
+    out.progress(`Backup created: ${backupPath}`);
+  }
+
+  // 2. Pre-flight collision check — ALL slugs before ANY rename. A single
+  // pass detects collisions up front so we never leave a half-renamed tree.
+  // Two flavours of collision: (a) target slug already exists on disk, and
+  // (b) two decisions in this batch resolve to the same target slug — both
+  // would individually pass the on-disk check but the second rename would
+  // fail mid-loop, leaving a half-renamed tree. Detect both up front.
+  const projectsDir = join(claudeDir, 'projects');
+  if (opts.dryRun !== true) {
+    const seenTargets = new Map<string, string>(); // newSlug → originating decision slug
+    for (const d of toRename) {
+      if (d.targetPath === null) continue; // unreachable for action === 'remap'
+      const newSlug = pathToSlug(d.targetPath);
+      const prior = seenTargets.get(newSlug);
+      if (prior !== undefined) {
+        throw new CmemmovError({
+          code: 'INTERNAL',
+          hint: `two remap decisions both target slug ${newSlug} (${prior} and ${d.slug}); resolve manually before re-running`,
+        });
+      }
+      seenTargets.set(newSlug, d.slug);
+
+      const newSlugDir = join(projectsDir, newSlug);
+      try {
+        await stat(newSlugDir);
+        // stat succeeded → target exists → collision
+        throw new CmemmovError({
+          code: 'INTERNAL',
+          hint: `target slug ${newSlug} already exists; remove or merge manually before re-running, or run cmemmov rollback`,
+        });
+      } catch (err) {
+        if (err instanceof CmemmovError) throw err;
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        // ENOENT → no collision, continue
+      }
+    }
+  }
+
+  // 3. Pre-read .claude.json so a malformed file aborts BEFORE any rename.
+  // `readSettingsFileStrict` distinguishes ENOENT (→ undefined) from malformed
+  // JSON (→ 'malformed'). The legacy reader collapsed both to undefined which
+  // would silently treat a corrupt-but-recoverable .claude.json as "missing"
+  // and skip the remap — the user gets a misleading "not found" warning while
+  // their real .claude.json continues to point at stale paths. Fail loudly on
+  // malformed BEFORE any rename so we don't leave a half-renamed tree paired
+  // with stale path fields the apply phase couldn't update.
+  const claudeJsonPath = `${claudeDir}.json`;
+  const existingClaudeJson = await readSettingsFileStrict(claudeJsonPath);
+  if (existingClaudeJson === 'malformed') {
+    throw new CmemmovError({
+      code: 'INTERNAL',
+      hint: `~/.claude.json is malformed; restore from backup ${backupPath ?? '(none — dry-run had no backup)'} or fix the JSON manually before re-running`,
+    });
+  }
+
+  // 4. Rename project directories via gate (dry-run-aware, EXDEV-aware).
+  const renameLabel = opts.dryRun === true ? '[dry-run] Would rename' : 'Renamed';
+  for (const d of toRename) {
+    if (d.targetPath === null) continue;
+    const newSlug = pathToSlug(d.targetPath);
+    const oldSlugDir = join(projectsDir, d.slug);
+    const newSlugDir = join(projectsDir, newSlug);
+    await gate.rename(oldSlugDir, newSlugDir);
+    out.progress(`${renameLabel}: ${d.slug} → ${newSlug}`);
+  }
+
+  // 5. Update .claude.json (path-bearing fields remapped via applyCategory).
+  const warnings: string[] = [];
+  if (existingClaudeJson === undefined) {
+    const msg =
+      '`~/.claude.json` not found — directory renames completed but global state not updated.';
+    out.warn(msg);
+    warnings.push(msg);
+  } else {
+    await applyCategory({
+      category: 'claudeJson',
+      mode: 'overwrite',
+      targetDir: claudeDir,
+      data: existingClaudeJson,
+      gate,
+      remapDecisions: toRename.map((d) => ({
+        originalPath: d.originalPath,
+        targetPath: d.targetPath,
+      })),
+      warn: (msg) => {
+        warnings.push(msg);
+        out.warn(msg);
+      },
+      info: (msg) => {
+        out.progress(msg);
+      },
+    });
+  }
+
+  // 6. Dry-run: emit what WOULD have happened (gate has recorded all ops).
+  if (opts.dryRun === true) {
+    out.progress('[dry-run] No changes applied. Operations that WOULD have occurred:');
+    for (const op of gate.recordedOps()) {
+      if (op.kind === 'rename') {
+        out.progress(`  rename: ${op.from} → ${op.to}`);
+      } else if (op.kind === 'write') {
+        out.progress(`  write: ${op.path} (${String(op.bytes)} bytes)`);
+      } else if (op.kind === 'mkdir') {
+        out.progress(`  mkdir: ${op.path}`);
+      } else {
+        out.progress(`  remove: ${op.path}`);
+      }
+    }
+  }
+
+  return { backupPath, warnings };
+}
+
 export async function run(opts: FixPathsOpts = {}): Promise<void> {
   const out = new Output('fix-paths', { json: opts.json === true });
   const { claudeDir } = locateClaude();
@@ -234,16 +375,23 @@ export async function run(opts: FixPathsOpts = {}): Promise<void> {
     }
   }
 
-  if (opts.dryRun === true) {
-    out.progress('[dry-run] No changes applied.');
-  }
+  const { backupPath, warnings } = await applyDecisions(decisions, claudeDir, opts, out);
 
   const remapCount = decisions.filter((d) => d.action === 'remap').length;
-  const summary = `${String(remapCount)} project(s) will be renamed.`;
+  const skipCount = decisions.filter(
+    (d) => d.action === 'skip' || d.action === 'no-op',
+  ).length;
+  const backupNote = opts.dryRun === true ? '[dry-run]' : (backupPath ?? 'none');
+  const summary = `${String(remapCount)} project(s) renamed, ${String(skipCount)} skipped. Backup: ${backupNote}`;
+
   if (opts.json === true) {
-    out.finish(summary, true, { projects: entries, remappings: decisions });
+    out.finish(summary, true, {
+      projects: entries,
+      remappings: decisions,
+      backupPath,
+      warnings,
+    });
   } else {
     out.finish(summary);
   }
-  // Story 3.3 will add the apply phase here (rename dirs + update .claude.json)
 }
