@@ -1,6 +1,6 @@
 # Story 3.0: Epic 2 Deferred Cleanup
 
-Status: review
+Status: done
 
 ## Story
 
