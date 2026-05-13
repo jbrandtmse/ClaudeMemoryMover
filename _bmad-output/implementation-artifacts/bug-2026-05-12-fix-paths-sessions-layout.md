@@ -8,7 +8,7 @@
   - [src/services/claude-reader.ts:224](../../src/services/claude-reader.ts#L224) — `readProject`
   - [src/services/claude-reader.ts:287](../../src/services/claude-reader.ts#L287) — `resolveOriginalPath`
 - **Build tested:** `main` @ 2a0e0b1 (Story 3.4 / fix-paths integration tests landed); `npm run build` produces working binary
-- **Status:** Open
+- **Status:** Deferred to Story 4.0 (Epic 4 deferred cleanup) — logged in `deferred-work.md`
 
 ---
 
