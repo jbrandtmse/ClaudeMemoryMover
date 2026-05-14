@@ -221,12 +221,14 @@ async function readProject(claudeDir: string, slug: string): Promise<ProjectSurf
   const memories = await readMemoryDir(join(projectDir, 'memory'));
   const claudeMd = await safeReadFile(join(projectDir, 'CLAUDE.md'));
 
-  const sessionsDir = join(projectDir, 'sessions');
-  const sessionEntries = await safeReadDir(sessionsDir);
-  const jsonlFiles = sessionEntries.filter((f) => f.endsWith('.jsonl'));
+  const sessionEntries = await safeReadDir(projectDir);
   const sessions: SessionFile[] = [];
-  for (const f of jsonlFiles) {
-    sessions.push(await readSessionFile(join(sessionsDir, f)));
+  for (const f of sessionEntries) {
+    if (!f.endsWith('.jsonl')) continue;
+    const fullPath = join(projectDir, f);
+    const st = await safeStat(fullPath);
+    if (st?.isFile !== true) continue;
+    sessions.push(await readSessionFile(fullPath));
   }
 
   return { slug, settings, memories, claudeMd, sessions };
@@ -284,14 +286,20 @@ export async function resolveOriginalPath(
   slug: string,
   claudeDir: string,
 ): Promise<OriginalPathResult> {
-  const sessionsDir = join(claudeDir, 'projects', slug, 'sessions');
-  const sessionFiles = await safeReadDir(sessionsDir);
-  const jsonlFiles = sessionFiles.filter((f) => f.endsWith('.jsonl'));
+  const slugDir = join(claudeDir, 'projects', slug);
+  const slugEntries = await safeReadDir(slugDir);
+  const jsonlFiles: string[] = [];
+  for (const f of slugEntries) {
+    if (!f.endsWith('.jsonl')) continue;
+    const fullPath = join(slugDir, f);
+    const st = await safeStat(fullPath);
+    if (st?.isFile === true) jsonlFiles.push(f);
+  }
 
   if (jsonlFiles.length > 0) {
     const withStats = await Promise.all(
       jsonlFiles.map(async (f) => {
-        const fullPath = join(sessionsDir, f);
+        const fullPath = join(slugDir, f);
         const st = await stat(fullPath);
         return { f, mtimeMs: st.mtimeMs };
       }),
@@ -299,7 +307,7 @@ export async function resolveOriginalPath(
     withStats.sort((a, b) => b.mtimeMs - a.mtimeMs);
     const mostRecentName = withStats[0]?.f;
     if (mostRecentName !== undefined) {
-      const mostRecent = join(sessionsDir, mostRecentName);
+      const mostRecent = join(slugDir, mostRecentName);
       // Wrap EBUSY/EPERM in CmemmovError(INTERNAL) per AC5 — mirrors the
       // guard in readSessionFile so both surface paths translate the same
       // way when Claude Code holds the JSONL open.

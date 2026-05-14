@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { CmemmovError } from '../core/error.js';
 
 // Hoisted mock state so the vi.mock factory can read it. Default is undefined
@@ -174,12 +176,19 @@ describe('resolveOriginalPath', () => {
     if (process.platform !== 'linux' && process.platform !== 'darwin') {
       return;
     }
-    // Use a slug that has no sessions on disk — the fixture tree has no
-    // sessions for an arbitrary "-foo-bar" slug, so the function must fall
-    // through to slugToPath.
-    const result = await resolveOriginalPath('-foo-bar', CLAUDE_DIR);
-    expect(result.source).toBe('slugDecode');
-    expect(result.path).toBe('/foo/bar');
+    // Seed a temp slug dir containing only a <uuid>/ sidecar directory (no
+    // *.jsonl files). The reader must classify the sidecar as non-JSONL and fall
+    // through to slugToPath instead of treating it as a session.
+    const tmpRoot = await mkdtemp(join(tmpdir(), 'cmemmov-reader-caseb-'));
+    try {
+      const slugDir = join(tmpRoot, 'projects', '-foo-bar');
+      await mkdir(join(slugDir, '3e13e938-e7e4-47fc-b9be-ad70c8a685df'), { recursive: true });
+      const result = await resolveOriginalPath('-foo-bar', tmpRoot);
+      expect(result.source).toBe('slugDecode');
+      expect(result.path).toBe('/foo/bar');
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
   });
 
   it('case (c): returns null source and slug as path when slug decode is null', async () => {
@@ -228,5 +237,26 @@ describe('resolveOriginalPath', () => {
     await expect(
       resolveOriginalPath('-home-user-myproject', CLAUDE_DIR),
     ).rejects.toBeInstanceOf(CmemmovError);
+  });
+
+  it('returns sessionCwd from a flat JSONL under slug dir — hyphenated path wins over slugDecode', async () => {
+    // Seed a temp slug dir with ONE flat <uuid>.jsonl whose first line has
+    // cwd="/Users/x/has-hyphens". slugToPath would mangle hyphens into path
+    // separators, so this test proves sessionCwd is preferred and correct.
+    const tmpRoot = await mkdtemp(join(tmpdir(), 'cmemmov-reader-test-'));
+    try {
+      const slugDir = join(tmpRoot, 'projects', '-Users-x-has-hyphens');
+      await mkdir(slugDir, { recursive: true });
+      await writeFile(
+        join(slugDir, 'abc-uuid.jsonl'),
+        JSON.stringify({ cwd: '/Users/x/has-hyphens', type: 'message' }) + '\n',
+        'utf8',
+      );
+      const result = await resolveOriginalPath('-Users-x-has-hyphens', tmpRoot);
+      expect(result.source).toBe('sessionCwd');
+      expect(result.path).toBe('/Users/x/has-hyphens');
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
   });
 });

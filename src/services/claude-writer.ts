@@ -2,7 +2,6 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { WriteGate } from './write-gate.js';
 import {
-  readClaudeJsonFile,
   readSettingsFileStrict,
   type MemoryFile,
   type SessionFile,
@@ -191,6 +190,16 @@ async function pathExists(path: string): Promise<boolean> {
     return true;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
+  }
+}
+
+async function safeStat(path: string): Promise<{ isFile: boolean; isDirectory: boolean } | undefined> {
+  try {
+    const st = await stat(path);
+    return { isFile: st.isFile(), isDirectory: st.isDirectory() };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw err;
   }
 }
@@ -591,8 +600,7 @@ async function applyClaudeMd(opts: ClaudeMdOpts): Promise<void> {
 
 async function applyMcpConfig(opts: McpConfigOpts): Promise<void> {
   const settingsPath = join(opts.targetDir, 'settings.json');
-  const parsed = await readClaudeJsonFile(settingsPath);
-  const existing: Record<string, unknown> = isObject(parsed) ? parsed : {};
+  const existing = await readSettingsForMerge(settingsPath);
 
   await opts.gate.mkdir(dirname(settingsPath), { recursive: true });
   if (opts.mode === 'overwrite') {
@@ -658,12 +666,16 @@ async function applyTeams(opts: TeamsOpts): Promise<void> {
   const existingDirs = await safeReadDir(teamsDir);
   const existingIds = new Set<string>();
   for (const d of existingDirs) {
-    const parsed = await readClaudeJsonFile(join(teamsDir, d, 'config.json'));
-    if (isObject(parsed) && typeof parsed.id === 'string') {
+    const cfgPath = join(teamsDir, d, 'config.json');
+    const parsed = await readSettingsForMerge(cfgPath);
+    if (typeof parsed.id === 'string') {
       existingIds.add(parsed.id);
     }
   }
   await opts.gate.mkdir(teamsDir, { recursive: true });
+  // Incoming team configs without an "id" field cannot participate in id-keyed
+  // collision detection, so they always write. This is intentional; teams lacking
+  // an id are addressed solely by directory name.
   for (const [teamName, cfg] of Object.entries(opts.data)) {
     const cfgId = isObject(cfg) && typeof cfg.id === 'string' ? cfg.id : undefined;
     if (cfgId !== undefined && existingIds.has(cfgId)) continue;
@@ -678,17 +690,33 @@ async function applyTeams(opts: TeamsOpts): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function applyPlugins(opts: PluginsOpts): Promise<void> {
-  // Plugins format on disk varies (plugins.json file vs plugins/<name>/config.json
-  // dir). For Epic 1 scope we write to plugins.json (single-file canonical form);
-  // overwrite replaces wholesale; merge unions by top-level key with existing keys winning.
+  // Abort loudly if the target install uses the plugins/<name>/config.json dir form.
+  // Writing plugins.json would silently mask the dir-form contents from subsequent
+  // reads, which is unacceptable. Require manual migration instead.
+  const pluginsDirPath = join(opts.targetDir, 'plugins');
+  const pluginsDirSt = await safeStat(pluginsDirPath);
+  if (pluginsDirSt?.isDirectory === true) {
+    const dirEntries = await safeReadDir(pluginsDirPath);
+    for (const entry of dirEntries) {
+      const cfgPath = join(pluginsDirPath, entry, 'config.json');
+      const cfgSt = await safeStat(cfgPath);
+      if (cfgSt?.isFile === true) {
+        throw new CmemmovError({
+          code: 'INTERNAL',
+          hint: 'target install uses the plugins/ directory form; cmemmov writes plugins.json. Migrate manually before importing.',
+          file: pluginsDirPath,
+        });
+      }
+    }
+  }
+
   const pluginsPath = join(opts.targetDir, 'plugins.json');
   await opts.gate.mkdir(dirname(pluginsPath), { recursive: true });
   if (opts.mode === 'overwrite') {
     await opts.gate.write(pluginsPath, JSON.stringify(opts.data, null, 2));
     return;
   }
-  const parsed = await readClaudeJsonFile(pluginsPath);
-  const existing: Record<string, unknown> = isObject(parsed) ? parsed : {};
+  const existing = await readSettingsForMerge(pluginsPath);
   const incoming = isObject(opts.data) ? opts.data : {};
   const merged: Record<string, unknown> = { ...existing };
   for (const [name, val] of Object.entries(incoming)) {
@@ -702,21 +730,29 @@ async function applyPlugins(opts: PluginsOpts): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function applySessionHistory(opts: SessionHistoryOpts): Promise<void> {
-  const sessionsDir = join(opts.targetDir, 'projects', opts.data.slug, 'sessions');
+  const slugDir = join(opts.targetDir, 'projects', opts.data.slug);
+  await opts.gate.mkdir(slugDir, { recursive: true });
   if (opts.mode === 'overwrite') {
-    await safeGateRemove(opts.gate, sessionsDir);
-    await opts.gate.mkdir(sessionsDir, { recursive: true });
+    // Remove only existing *.jsonl files at slug-dir top level.
+    // Do NOT remove the slug dir wholesale — that would destroy memory/,
+    // CLAUDE.md, settings.json, and <uuid>/ sidecars.
+    const entries = await safeReadDir(slugDir);
+    for (const name of entries) {
+      if (!name.endsWith('.jsonl')) continue;
+      const fullPath = join(slugDir, name);
+      const st = await safeStat(fullPath);
+      if (st?.isFile === true) await safeGateRemove(opts.gate, fullPath);
+    }
     for (const sf of opts.data.files) {
-      await opts.gate.write(join(sessionsDir, sf.filename), sf.lines.join('\n'));
+      await opts.gate.write(join(slugDir, sf.filename), sf.lines.join('\n'));
     }
     return;
   }
   // merge: append-only by filename; existing JSONL never overwritten.
-  const existing = await safeReadDir(sessionsDir);
-  const existingNames = new Set(existing);
-  await opts.gate.mkdir(sessionsDir, { recursive: true });
+  const existing = await safeReadDir(slugDir);
+  const existingNames = new Set(existing.filter((n) => n.endsWith('.jsonl')));
   for (const sf of opts.data.files) {
     if (existingNames.has(sf.filename)) continue;
-    await opts.gate.write(join(sessionsDir, sf.filename), sf.lines.join('\n'));
+    await opts.gate.write(join(slugDir, sf.filename), sf.lines.join('\n'));
   }
 }

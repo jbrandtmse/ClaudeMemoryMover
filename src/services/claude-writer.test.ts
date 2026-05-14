@@ -374,9 +374,10 @@ describe('applyCategory — mcpConfig', () => {
 describe('applyCategory — sessionHistory', () => {
   it('merge: existing JSONL not overwritten, new JSONL written', async () => {
     const slug = '-home-user-myproject';
-    const sessionsDir = join(claudeDir, 'projects', slug, 'sessions');
-    await mkdir(sessionsDir, { recursive: true });
-    await writeFile(join(sessionsDir, 'old-session.jsonl'), 'pre-existing', 'utf8');
+    // Flat layout: session JSONL lives directly under the slug dir (not sessions/).
+    const slugDir = join(claudeDir, 'projects', slug);
+    await mkdir(slugDir, { recursive: true });
+    await writeFile(join(slugDir, 'old-session.jsonl'), 'pre-existing', 'utf8');
 
     const gate = makeDryRunWriteGate();
     await applyCategory({
@@ -397,11 +398,16 @@ describe('applyCategory — sessionHistory', () => {
     expect(writePathsEnding(ops, 'fresh-session.jsonl')).toHaveLength(1);
   });
 
-  it('overwrite: removes sessions dir and writes all incoming JSONL', async () => {
+  it('overwrite: removes only flat *.jsonl at slug-dir top level; memory/ and <uuid>/ sidecar survive', async () => {
     const slug = '-home-user-myproject';
-    const sessionsDir = join(claudeDir, 'projects', slug, 'sessions');
-    await mkdir(sessionsDir, { recursive: true });
-    await writeFile(join(sessionsDir, 'old.jsonl'), 'old', 'utf8');
+    const slugDir = join(claudeDir, 'projects', slug);
+    // Flat layout: pre-existing JSONL lives directly under slug dir.
+    await mkdir(slugDir, { recursive: true });
+    await writeFile(join(slugDir, 'old.jsonl'), 'old', 'utf8');
+    // Seed a memory/ subdir and a <uuid>/ sidecar to prove overwrite leaves them intact.
+    await mkdir(join(slugDir, 'memory'), { recursive: true });
+    await writeFile(join(slugDir, 'memory', 'note.md'), '# note', 'utf8');
+    await mkdir(join(slugDir, '3e13e938-e7e4-47fc-b9be-ad70c8a685df'), { recursive: true });
 
     const gate = makeDryRunWriteGate();
     await applyCategory({
@@ -415,8 +421,12 @@ describe('applyCategory — sessionHistory', () => {
       },
     });
     const ops = gate.recordedOps();
-    expect(ops.some((op) => op.kind === 'remove')).toBe(true);
+    // old.jsonl removed; new.jsonl written.
+    expect(ops.some((op) => op.kind === 'remove' && op.path.endsWith('old.jsonl'))).toBe(true);
     expect(writePathsEnding(ops, 'new.jsonl')).toHaveLength(1);
+    // memory/ and sidecar uuid dir are NOT in the remove list.
+    expect(ops.some((op) => op.kind === 'remove' && op.path.includes('memory'))).toBe(false);
+    expect(ops.some((op) => op.kind === 'remove' && op.path.includes('3e13e938'))).toBe(false);
   });
 });
 
@@ -477,6 +487,23 @@ describe('applyCategory — customCommands', () => {
   });
 });
 
+describe('applyCategory — mcpConfig strict-reader (AC5)', () => {
+  it('throws INTERNAL when settings.json is malformed; gate.write not called', async () => {
+    await writeFile(join(claudeDir, 'settings.json'), '{not json', 'utf8');
+    const gate = makeDryRunWriteGate();
+    await expect(
+      applyCategory({
+        category: 'mcpConfig',
+        mode: 'merge',
+        targetDir: claudeDir,
+        gate,
+        data: { server: { command: 'x' } },
+      }),
+    ).rejects.toMatchObject({ code: 'INTERNAL' });
+    expect(gate.recordedOps().some((op) => op.kind === 'write')).toBe(false);
+  });
+});
+
 describe('applyCategory — teams', () => {
   it('merge: union by team id; existing kept on id collision', async () => {
     const teamsDir = join(claudeDir, 'teams');
@@ -533,6 +560,25 @@ describe('applyCategory — teams', () => {
   });
 });
 
+describe('applyCategory — teams strict-reader (AC5)', () => {
+  it('throws INTERNAL when a team config.json is malformed; gate.write not called', async () => {
+    const teamsDir = join(claudeDir, 'teams');
+    await mkdir(join(teamsDir, 'foo'), { recursive: true });
+    await writeFile(join(teamsDir, 'foo', 'config.json'), '{not json', 'utf8');
+    const gate = makeDryRunWriteGate();
+    await expect(
+      applyCategory({
+        category: 'teams',
+        mode: 'merge',
+        targetDir: claudeDir,
+        gate,
+        data: { 'new-team': { id: 'new', name: 'New' } },
+      }),
+    ).rejects.toMatchObject({ code: 'INTERNAL' });
+    expect(gate.recordedOps().some((op) => op.kind === 'write')).toBe(false);
+  });
+});
+
 describe('applyCategory — plugins', () => {
   it('merge: union by name; existing kept on collision', async () => {
     await writeFile(
@@ -568,6 +614,40 @@ describe('applyCategory — plugins', () => {
     const writtenRaw = getCapturedContent(captured, (p) => p.endsWith('plugins.json'));
     const written = JSON.parse(writtenRaw) as Record<string, unknown>;
     expect(written).toEqual({ fresh: { v: 1 } });
+  });
+});
+
+describe('applyCategory — plugins strict-reader and dir-form abort (AC5, D5)', () => {
+  it('throws INTERNAL when plugins.json is a top-level array (structurally wrong); gate.write not called', async () => {
+    await writeFile(join(claudeDir, 'plugins.json'), '[1,2,3]', 'utf8');
+    const gate = makeDryRunWriteGate();
+    await expect(
+      applyCategory({
+        category: 'plugins',
+        mode: 'merge',
+        targetDir: claudeDir,
+        gate,
+        data: { server: { v: 1 } },
+      }),
+    ).rejects.toMatchObject({ code: 'INTERNAL' });
+    expect(gate.recordedOps().some((op) => op.kind === 'write')).toBe(false);
+  });
+
+  it('throws INTERNAL when plugins/ directory form is detected; gate.write not called', async () => {
+    const pluginsDirPath = join(claudeDir, 'plugins', 'foo');
+    await mkdir(pluginsDirPath, { recursive: true });
+    await writeFile(join(pluginsDirPath, 'config.json'), '{}', 'utf8');
+    const gate = makeDryRunWriteGate();
+    await expect(
+      applyCategory({
+        category: 'plugins',
+        mode: 'overwrite',
+        targetDir: claudeDir,
+        gate,
+        data: { foo: { v: 1 } },
+      }),
+    ).rejects.toMatchObject({ code: 'INTERNAL' });
+    expect(gate.recordedOps().some((op) => op.kind === 'write')).toBe(false);
   });
 });
 

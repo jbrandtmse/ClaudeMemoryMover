@@ -113,10 +113,10 @@ describe('AC1(a): all projects FOUND → early exit, no remap', () => {
     const projectPath = join(tmpRoot, 'my-project');
     await mkdir(projectPath, { recursive: true });
     const slug = pathToSlug(projectPath);
-    const sessionsDir = join(tmpRoot, '.claude', 'projects', slug, 'sessions');
-    await mkdir(sessionsDir, { recursive: true });
+    const slugDir = join(tmpRoot, '.claude', 'projects', slug);
+    await mkdir(slugDir, { recursive: true });
     await writeFile(
-      join(sessionsDir, 'session.jsonl'),
+      join(slugDir, 'session.jsonl'),
       JSON.stringify({ type: 'message', cwd: projectPath }) + '\n',
       'utf8',
     );
@@ -226,10 +226,10 @@ describe('AC1(c): mixed tree — only missing projects are remapped', () => {
     const foundPath = join(tmpRoot, 'found-project');
     await mkdir(foundPath, { recursive: true });
     const foundSlug = pathToSlug(foundPath);
-    const foundSessionsDir = join(tmpRoot, '.claude', 'projects', foundSlug, 'sessions');
-    await mkdir(foundSessionsDir, { recursive: true });
+    const foundSlugDir = join(tmpRoot, '.claude', 'projects', foundSlug);
+    await mkdir(foundSlugDir, { recursive: true });
     await writeFile(
-      join(foundSessionsDir, 's.jsonl'),
+      join(foundSlugDir, 's.jsonl'),
       JSON.stringify({ cwd: foundPath }) + '\n',
       'utf8',
     );
@@ -237,10 +237,10 @@ describe('AC1(c): mixed tree — only missing projects are remapped', () => {
     // MISSING project: session points at a non-existent fake path.
     const missingPath = '/home/alice/projects/gone-app';
     const missingSlug = pathToSlug(missingPath);
-    const missingSessionsDir = join(tmpRoot, '.claude', 'projects', missingSlug, 'sessions');
-    await mkdir(missingSessionsDir, { recursive: true });
+    const missingSlugDir = join(tmpRoot, '.claude', 'projects', missingSlug);
+    await mkdir(missingSlugDir, { recursive: true });
     await writeFile(
-      join(missingSessionsDir, 's.jsonl'),
+      join(missingSlugDir, 's.jsonl'),
       JSON.stringify({ cwd: missingPath }) + '\n',
       'utf8',
     );
@@ -309,20 +309,14 @@ describe('AC1(d)+AC6: slug collision → INTERNAL thrown, backup exists, slugs u
       '/home/alice/new',
     );
     const newSlug = pathToSlug(targetPath);
-    const newSlugSessionsDir = join(
-      ctx.tmpRoot,
-      '.claude',
-      'projects',
-      newSlug,
-      'sessions',
-    );
-    await mkdir(newSlugSessionsDir, { recursive: true });
+    const newSlugDir = join(ctx.tmpRoot, '.claude', 'projects', newSlug);
+    await mkdir(newSlugDir, { recursive: true });
     // Anchor the existing-target slug to a real on-disk path so its scan
     // resolves to exists: true and the slug stays out of the missing list.
     const anchorPath = join(ctx.tmpRoot, 'collision-anchor');
     await mkdir(anchorPath, { recursive: true });
     await writeFile(
-      join(newSlugSessionsDir, 's.jsonl'),
+      join(newSlugDir, 's.jsonl'),
       JSON.stringify({ cwd: anchorPath }) + '\n',
       'utf8',
     );
@@ -585,16 +579,10 @@ describe('AC5: skip / no-op → slug unchanged, .claude.json unchanged, summary 
     // Single missing project; --remap rule that maps source → source (no-op).
     const missingPath = '/home/alice/projects/keep-me';
     const missingSlug = pathToSlug(missingPath);
-    const missingSessionsDir = join(
-      tmpRoot,
-      '.claude',
-      'projects',
-      missingSlug,
-      'sessions',
-    );
-    await mkdir(missingSessionsDir, { recursive: true });
+    const missingSlugDir = join(tmpRoot, '.claude', 'projects', missingSlug);
+    await mkdir(missingSlugDir, { recursive: true });
     await writeFile(
-      join(missingSessionsDir, 's.jsonl'),
+      join(missingSlugDir, 's.jsonl'),
       JSON.stringify({ cwd: missingPath }) + '\n',
       'utf8',
     );
@@ -687,5 +675,89 @@ describe('AC5: skip / no-op → slug unchanged, .claude.json unchanged, summary 
     await expect(stat(join(claudeDir, 'backups'))).rejects.toMatchObject({
       code: 'ENOENT',
     });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// AC4 (B3/B4): real-layout fixture with hyphenated names + skip-and-continue
+// -----------------------------------------------------------------------------
+
+describe('AC4+AC6: real-layout fixture — hyphenated folder names, uuid sidecar, memory/ skip, undecodable slug warned', () => {
+  let testCtx: TestCtx | undefined;
+
+  afterEach(async () => {
+    if (testCtx !== undefined) {
+      await teardownTmp(testCtx);
+      testCtx = undefined;
+    }
+  });
+
+  it('fix-paths --silent --remap: real-layout fixture with hyphenated names and skip-and-continue', async () => {
+    testCtx = await makeBareTmp();
+    const { tmpRoot } = testCtx;
+    const projectsDir = join(tmpRoot, '.claude', 'projects');
+
+    // Three hyphenated-cwd projects — each with a flat JSONL whose cwd matches
+    // the hyphenated original path.
+    const projects = [
+      { path: '/home/u/fhir-bridge', remap: '/home/u=/home/u' },
+      { path: '/home/u/query-parameter-registry', remap: '/home/u=/home/u' },
+      { path: '/home/u/repository-registry', remap: '/home/u=/home/u' },
+    ] as const;
+
+    for (const p of projects) {
+      const slug = pathToSlug(p.path);
+      const slugDir = join(projectsDir, slug);
+      await mkdir(slugDir, { recursive: true });
+      await writeFile(
+        join(slugDir, 'session.jsonl'),
+        JSON.stringify({ cwd: p.path }) + '\n',
+        'utf8',
+      );
+    }
+
+    // One of the slug dirs gets a <uuid>/ sidecar and a memory/ subdir — the
+    // reader must skip both and still find the session JSONL.
+    const firstSlug = pathToSlug('/home/u/fhir-bridge');
+    await mkdir(join(projectsDir, firstSlug, '3e13e938-e7e4-47fc-b9be-ad70c8a685df'), { recursive: true });
+    await mkdir(join(projectsDir, firstSlug, 'memory'), { recursive: true });
+
+    // Fourth slug: genuinely undecodable (no *.jsonl files) — no rule for it.
+    const vscodeSlug = '-Applications-Visual-Studio-Code-app-Contents-Resources-app-bin';
+    await mkdir(join(projectsDir, vscodeSlug), { recursive: true });
+
+    await writeFile(join(tmpRoot, '.claude.json'), JSON.stringify({}), 'utf8');
+
+    // Run silent with 3 remap rules (all map /home/u → /home/u = no-op to keep
+    // paths pointing at non-existent dirs, so they stay MISSING). The VS Code
+    // slug has NO matching rule — it must be warned and skipped, not abort.
+    const { parsed } = await captureJsonRun(() =>
+      run({
+        json: true,
+        silent: true,
+        remap: [
+          '/home/u/fhir-bridge=/home/u/fhir-bridge',
+          '/home/u/query-parameter-registry=/home/u/query-parameter-registry',
+          '/home/u/repository-registry=/home/u/repository-registry',
+        ],
+      }),
+    );
+
+    expect(parsed.success).toBe(true);
+
+    const summary = parsed.summary as {
+      remappings: { action: string; slug: string }[];
+      warnings: string[];
+    };
+
+    // Three no-op remap decisions (rule matched but path unchanged).
+    const noOps = summary.remappings.filter((r) => r.action === 'no-op');
+    expect(noOps).toHaveLength(3);
+
+    // VS Code slug: warned and skipped.
+    expect(summary.warnings.some((w) => w.includes(vscodeSlug))).toBe(true);
+    const skips = summary.remappings.filter((r) => r.action === 'skip');
+    expect(skips).toHaveLength(1);
+    expect(skips[0]?.slug).toBe(vscodeSlug);
   });
 });

@@ -139,7 +139,7 @@ export async function collectRemapDecisions(
   missing: ProjectInventoryEntry[],
   opts: FixPathsOpts,
   claudeDir: string,
-): Promise<RemapDecision[]> {
+): Promise<{ decisions: RemapDecision[]; warnings: string[] }> {
   const silent = opts.silent === true;
   // `--remap` specs are scripted-mode-only. Parse them only when we are going
   // to consult them (silent path); validating them in interactive mode would
@@ -147,6 +147,16 @@ export async function collectRemapDecisions(
   // never read.
   const remapSpecs = silent ? parseRemapSpecs(opts.remap ?? []) : [];
   const decisions: RemapDecision[] = [];
+  const warnings: string[] = [];
+
+  // No rules at all in silent mode is genuine user error (they ran the silent
+  // path without telling cmemmov what to do). Preserve the hard-abort.
+  if (silent && remapSpecs.length === 0 && missing.length > 0) {
+    throw new CmemmovError({
+      code: 'PATH_REMAP_AMBIGUOUS',
+      hint: `--remap rule needed for ${missing[0]?.decodedPath ?? 'unknown'}`,
+    });
+  }
 
   for (const entry of missing) {
     const { slug, decodedPath } = entry;
@@ -154,10 +164,13 @@ export async function collectRemapDecisions(
     if (silent) {
       const match = matchRemapSpec(decodedPath, remapSpecs);
       if (match === null) {
-        throw new CmemmovError({
-          code: 'PATH_REMAP_AMBIGUOUS',
-          hint: `--remap rule needed for ${decodedPath}`,
-        });
+        // Per-project skip: one unmatched slug doesn't abort the whole run
+        // when the user has supplied at least one --remap rule. The "no rules
+        // at all" hard-abort is handled above.
+        const msg = `Skipped: --remap rule needed for ${slug} (decoded: ${decodedPath})`;
+        warnings.push(msg);
+        decisions.push({ slug, originalPath: decodedPath, targetPath: null, action: 'skip' });
+        continue;
       }
       const suffix = decodedPath.slice(match.lhs.length);
       const targetPath = match.rhs + suffix;
@@ -193,7 +206,7 @@ export async function collectRemapDecisions(
     });
   }
 
-  return decisions;
+  return { decisions, warnings };
 }
 
 export async function applyDecisions(
@@ -363,7 +376,12 @@ export async function run(opts: FixPathsOpts = {}): Promise<void> {
     out.warn('--remap is ignored in interactive mode; use --silent --remap for scripted runs.');
   }
 
-  const decisions = await collectRemapDecisions(missing, opts, claudeDir);
+  const { decisions, warnings: remapWarnings } = await collectRemapDecisions(missing, opts, claudeDir);
+
+  // Surface per-project skip warnings before applyDecisions so dry-run preview shows them.
+  for (const msg of remapWarnings) {
+    out.warn(msg);
+  }
 
   for (const d of decisions) {
     if (d.action === 'remap') {
@@ -375,7 +393,8 @@ export async function run(opts: FixPathsOpts = {}): Promise<void> {
     }
   }
 
-  const { backupPath, warnings } = await applyDecisions(decisions, claudeDir, opts, out);
+  const { backupPath, warnings: applyWarnings } = await applyDecisions(decisions, claudeDir, opts, out);
+  const warnings = [...remapWarnings, ...applyWarnings];
 
   const remapCount = decisions.filter((d) => d.action === 'remap').length;
   const skipCount = decisions.filter(

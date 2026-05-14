@@ -105,10 +105,9 @@ async function seedClaudeTree(): Promise<void> {
 
   const slug = projectRealPath.replace(/[\\/:]/g, '-');
   const projDir = join(claudeDir, 'projects', slug);
-  const sessionsDir = join(projDir, 'sessions');
-  await mkdir(sessionsDir, { recursive: true });
+  await mkdir(projDir, { recursive: true });
   await writeFile(
-    join(sessionsDir, 'session-1.jsonl'),
+    join(projDir, 'session-1.jsonl'),
     JSON.stringify({ type: 'message', cwd: projectRealPath, version: '2.1.133' }) + '\n',
     'utf8',
   );

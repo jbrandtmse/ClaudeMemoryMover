@@ -546,7 +546,7 @@ describe('AC1(a): missing project with candidate on disk → auto-suggestion, ac
     const missing: ProjectInventoryEntry[] = [
       { slug, decodedPath: decoded, exists: false, source: 'sessionCwd' },
     ];
-    const decisions = await collectRemapDecisions(missing, {}, CLAUDE_DIR);
+    const { decisions } = await collectRemapDecisions(missing, {}, CLAUDE_DIR);
 
     expect(mockPromptRemapDecision).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -576,7 +576,7 @@ describe('AC1(b): no candidate on disk → prompt called with suggestion: null',
     const missing: ProjectInventoryEntry[] = [
       { slug, decodedPath: decoded, exists: false, source: 'sessionCwd' },
     ];
-    const decisions = await collectRemapDecisions(missing, {}, CLAUDE_DIR);
+    const { decisions } = await collectRemapDecisions(missing, {}, CLAUDE_DIR);
 
     expect(mockPromptRemapDecision).toHaveBeenCalledWith(
       expect.objectContaining({ suggestion: null }),
@@ -596,7 +596,7 @@ describe('AC4(c): scripted --remap prefix substitution', () => {
       { slug, decodedPath: decoded, exists: false, source: 'sessionCwd' },
     ];
 
-    const decisions = await collectRemapDecisions(
+    const { decisions } = await collectRemapDecisions(
       missing,
       { silent: true, remap: ['/home/jordan/old-dev=/home/jordan/new-dev'] },
       CLAUDE_DIR,
@@ -620,7 +620,7 @@ describe('AC4(c): scripted --remap prefix substitution', () => {
       { slug, decodedPath: decoded, exists: false, source: 'sessionCwd' },
     ];
 
-    const decisions = await collectRemapDecisions(
+    const { decisions } = await collectRemapDecisions(
       missing,
       {
         silent: true,
@@ -647,7 +647,7 @@ describe('AC4(c): scripted --remap prefix substitution', () => {
       { slug, decodedPath: decoded, exists: false, source: 'sessionCwd' },
     ];
 
-    const decisions = await collectRemapDecisions(
+    const { decisions } = await collectRemapDecisions(
       missing,
       { silent: true, remap: ['C:\\Users\\Joe\\old-app=D:\\new-app'] },
       CLAUDE_DIR,
@@ -658,25 +658,24 @@ describe('AC4(c): scripted --remap prefix substitution', () => {
   });
 });
 
-describe('AC4(d)+AC5: --silent + no matching --remap → PATH_REMAP_AMBIGUOUS', () => {
-  it('throws PATH_REMAP_AMBIGUOUS when no spec matches', async () => {
+describe('AC4(d)+AC5: --silent + no matching --remap → skip with warning OR PATH_REMAP_AMBIGUOUS', () => {
+  it('per-project skip (with warning) when rule supplied but no spec matches', async () => {
+    const slug = '-home-jordan-unknown-app';
     const decoded = '/home/jordan/unknown-app';
     const missing: ProjectInventoryEntry[] = [
-      {
-        slug: '-home-jordan-unknown-app',
-        decodedPath: decoded,
-        exists: false,
-        source: 'sessionCwd',
-      },
+      { slug, decodedPath: decoded, exists: false, source: 'sessionCwd' },
     ];
 
-    await expect(
-      collectRemapDecisions(
-        missing,
-        { silent: true, remap: ['/other/prefix=/somewhere'] },
-        CLAUDE_DIR,
-      ),
-    ).rejects.toMatchObject({ code: 'PATH_REMAP_AMBIGUOUS' });
+    const result = await collectRemapDecisions(
+      missing,
+      { silent: true, remap: ['/other/prefix=/somewhere'] },
+      CLAUDE_DIR,
+    );
+
+    expect(result.decisions).toHaveLength(1);
+    expect(result.decisions[0]?.action).toBe('skip');
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/Skipped:.*-home-jordan-unknown-app/);
   });
 
   it('throws PATH_REMAP_AMBIGUOUS when no --remap flag at all', async () => {
@@ -708,7 +707,7 @@ describe('AC6(f): no-op — suggestion equals originalPath', () => {
     const missing: ProjectInventoryEntry[] = [
       { slug, decodedPath: decoded, exists: false, source: 'sessionCwd' },
     ];
-    const decisions = await collectRemapDecisions(missing, {}, CLAUDE_DIR);
+    const { decisions } = await collectRemapDecisions(missing, {}, CLAUDE_DIR);
 
     expect(decisions[0]?.action).toBe('no-op');
     expect(decisions[0]?.targetPath).toBeNull();
@@ -721,7 +720,7 @@ describe('AC6(f): no-op — suggestion equals originalPath', () => {
       { slug, decodedPath: decoded, exists: false, source: 'sessionCwd' },
     ];
 
-    const decisions = await collectRemapDecisions(
+    const { decisions } = await collectRemapDecisions(
       missing,
       { silent: true, remap: ['/home/jordan=/home/jordan'] },
       CLAUDE_DIR,
@@ -741,7 +740,7 @@ describe('AC1(g): skip from prompt → action: skip, targetPath: null', () => {
     const missing: ProjectInventoryEntry[] = [
       { slug, decodedPath: decoded, exists: false, source: 'sessionCwd' },
     ];
-    const decisions = await collectRemapDecisions(missing, {}, CLAUDE_DIR);
+    const { decisions } = await collectRemapDecisions(missing, {}, CLAUDE_DIR);
 
     expect(decisions).toEqual([
       {

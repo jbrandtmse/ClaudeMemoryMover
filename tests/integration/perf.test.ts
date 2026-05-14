@@ -35,9 +35,7 @@ async function seedTwentyProjectTree(): Promise<void> {
     const slug = realPath.replace(/[\\/:]/g, '-');
     const projDir = join(claudeDir, 'projects', slug);
     const memDir = join(projDir, 'memory');
-    const sessionsDir = join(projDir, 'sessions');
     await mkdir(memDir, { recursive: true });
-    await mkdir(sessionsDir, { recursive: true });
     await writeFile(
       join(projDir, 'settings.json'),
       JSON.stringify({ permissions: { allow: ['npm:*'] } }, null, 2),
@@ -50,10 +48,10 @@ async function seedTwentyProjectTree(): Promise<void> {
         'utf8',
       );
     }
-    // Minimum-viable session JSONL so resolveOriginalPath has cwd info — no
-    // bulk session content (that's what large-perf covers).
+    // Minimum-viable session JSONL flat under slug dir so resolveOriginalPath
+    // has cwd info — session JSONLs are not nested under sessions/ on disk.
     await writeFile(
-      join(sessionsDir, 'session.jsonl'),
+      join(projDir, 'session.jsonl'),
       JSON.stringify({
         type: 'message',
         cwd: realPath,

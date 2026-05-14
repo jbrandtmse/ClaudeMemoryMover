@@ -87,8 +87,11 @@ function buildSourceOsPaths(opts: SeedOpts): SourceOsPaths {
  *     projects/<projectSlug>/
  *       CLAUDE.md                            "# Project memory\n"
  *       settings.json                        { permissions: [...] }
- *       sessions/session-1.jsonl             { type, cwd: <fake source path>, version }
+ *       session-1.jsonl                      { type, cwd: <fake source path>, version }
  *   <tmpRoot>/.claude.json                   { lastSessionCwd, currentProject, recentProjects }
+ *
+ * Note: session JSONLs are written flat under the slug dir (not in sessions/).
+ * This matches Claude Code's real on-disk layout as of the 2026-05-12 bug report.
  *
  * Caller is responsible for:
  *   - setting `process.env.CLAUDE_CONFIG_DIR = <tmpRoot>/.claude`
@@ -104,15 +107,15 @@ export async function seedClaudeTree(opts: SeedOpts): Promise<TempClaudeDir> {
 
   const projectSlug = pathToSlug(src.projectRealPath);
   const realProjectDir = join(realClaudeDir, 'projects', projectSlug);
-  const realSessionsDir = join(realProjectDir, 'sessions');
+  const realJsonlPath = join(realProjectDir, 'session-1.jsonl');
   const realMemoryDir = join(realClaudeDir, 'memory');
 
-  await mkdir(realSessionsDir, { recursive: true });
+  await mkdir(realProjectDir, { recursive: true });
   await mkdir(realMemoryDir, { recursive: true });
 
-  // Project files
+  // Project files — session JSONL written flat under the slug dir (real layout)
   await writeFile(
-    join(realSessionsDir, 'session-1.jsonl'),
+    realJsonlPath,
     JSON.stringify({ type: 'message', cwd: src.projectRealPath, version: '2.1.133' }) + '\n',
     'utf8',
   );
