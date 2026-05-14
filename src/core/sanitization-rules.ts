@@ -433,12 +433,26 @@ function applyStripPersonal(bundle: Bundle, patterns: readonly RegExp[] = PERSON
   };
 }
 
-// Verify at compile time that SanitizationProfile covers all canonical categories.
-// This will fail to typecheck if a new category is added to ALL_CATEGORIES
-// without updating SanitizationProfile.
+// Bidirectional compile-time guard that SanitizationProfile's keys exactly
+// match the canonical category set (ALL_CATEGORIES ∪ {'credentials', 'claudeJson'}).
+//
+// Forward direction — adding a new entry to ALL_CATEGORIES without extending
+// SanitizationProfile fails typecheck because the literal array would no
+// longer be assignable to `(keyof SanitizationProfile)[]`.
 const _allCategoriesCheck: readonly (keyof SanitizationProfile)[] = [
   ...ALL_CATEGORIES,
   'credentials',
   'claudeJson',
 ] as const;
 void _allCategoriesCheck;
+
+// Reverse direction — adding an extra/misspelled key to SanitizationProfile
+// (one that is NOT in ALL_CATEGORIES ∪ {'credentials', 'claudeJson'}) fails
+// typecheck because the conditional below would resolve to `false` instead of
+// `true`, and `true` is not assignable to `false`.
+type _ProfileKeysSubsetOfCanonical =
+  keyof SanitizationProfile extends (typeof ALL_CATEGORIES)[number] | 'credentials' | 'claudeJson'
+    ? true
+    : false;
+const _profileKeysSubsetOfCanonical: _ProfileKeysSubsetOfCanonical = true;
+void _profileKeysSubsetOfCanonical;

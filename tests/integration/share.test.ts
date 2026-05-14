@@ -85,6 +85,11 @@ function makeCtx(src: ShareSourceTempClaudeDir): TestCtx {
 }
 
 async function teardown(ctx: TestCtx | undefined): Promise<void> {
+  // Defensive reset: even if a test panics after setting homedirState.value
+  // but before its per-test cleanup runs, the next test must start with a
+  // clean slate. Done unconditionally and BEFORE the ctx-undefined guard so
+  // it fires on every test exit regardless of ctx state.
+  homedirState.value = '';
   if (ctx === undefined) return;
   for (const m of ctx.platformMocks) m.restore();
   if (ctx.originalEnvDir === undefined) {
@@ -159,8 +164,12 @@ describe('share + team bundle round-trip integration tests', () => {
     expect(claudeJsonFields).toContain('recentProjects');
     expect(claudeJsonFields).toContain('lastSessionCwd');
 
-    // Credentials are never included in a share bundle (share always uses
-    // includeCredentials: false); NFR6 is enforced at a different level.
+    // NFR6 layer 2: share calls buildBundle({ includeCredentials: false }), so
+    // bundle.credentials is never populated. wasRedacted.credentials does NOT
+    // fire for share (that record is reserved for callers who actually feed
+    // credentials into applySanitization, e.g., export with
+    // --include-credentials). The byte-sweep test in (f) below is the
+    // mechanical NFR6 guarantee for share.
     expect(bundle.credentials).toBeUndefined();
 
     // Import onto clean target
@@ -395,8 +404,12 @@ describe('share + team bundle round-trip integration tests', () => {
     const bundleText = await readFile(bundlePath, 'utf8');
     expect(bundleText.includes('secret-test-token-EYES-ONLY')).toBe(false);
 
-    // Share always uses includeCredentials: false, so bundle.credentials is undefined.
-    // NFR6 is enforced at the source: credentials are never serialized.
+    // NFR6 layer 2: share calls buildBundle({ includeCredentials: false }), so
+    // bundle.credentials is never populated. wasRedacted.credentials does NOT
+    // fire for share (that record is reserved for callers who actually feed
+    // credentials into applySanitization, e.g., export with
+    // --include-credentials). The byte-sweep above is the mechanical NFR6
+    // guarantee for share.
     const bundle = BundleSchema.parse(JSON.parse(bundleText));
     expect(bundle.credentials).toBeUndefined();
     expect(bundle.hasCredentials).toBe(false);

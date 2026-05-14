@@ -413,6 +413,28 @@ describe('AC10 — unsupported categories rejected', () => {
     expect(cats).toContain('teams');
     expect(cats).toContain('plugins');
   });
+
+  it('throws INTERNAL with "unknown category: foobar" when an unknown token is passed', () => {
+    let caught: unknown;
+    try {
+      parseShareCategories('foobar');
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toMatchObject({ code: 'INTERNAL' });
+    expect((caught as CmemmovError).hint).toBe('unknown category: foobar');
+  });
+
+  it('throws INTERNAL on unknown token even when mixed with valid tokens (short-circuit)', () => {
+    let caught: unknown;
+    try {
+      parseShareCategories('claudeMd,foobar,teams');
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toMatchObject({ code: 'INTERNAL' });
+    expect((caught as CmemmovError).hint).toBe('unknown category: foobar');
+  });
 });
 
 describe('AC1 — silent mode requires --categories', () => {

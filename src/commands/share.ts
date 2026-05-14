@@ -23,14 +23,40 @@ import {
 } from '../ui/prompts.js';
 import type { Bundle } from '../core/bundle-schema.js';
 
-export const SHARE_CATEGORIES: readonly ClaudeCategory[] = [
+// Bidirectional compile-time guard for the share category set.
+//
+// `ShareCategoryName` is the *intent* (the set of names share supports);
+// `SHARE_CATEGORIES` is the *expression* (the runtime literal). The
+// `satisfies readonly ShareCategoryName[]` clause enforces equivalence:
+//   - Removing an intended name from SHARE_CATEGORIES (e.g. dropping
+//     'claudeMd') fails the reverse-direction check below.
+//   - Adding a name to SHARE_CATEGORIES that is not a ClaudeCategory
+//     (or not in ShareCategoryName) fails typecheck via `satisfies`.
+type ShareCategoryName =
+  | 'claudeMd'
+  | 'customCommands'
+  | 'mcpConfig'
+  | 'globalSettings'
+  | 'teams'
+  | 'plugins';
+
+export const SHARE_CATEGORIES = [
   'claudeMd',
   'customCommands',
   'mcpConfig',
   'globalSettings',
   'teams',
   'plugins',
-] as const;
+] as const satisfies readonly ShareCategoryName[] & readonly ClaudeCategory[];
+
+// Reverse direction — every name in ShareCategoryName must appear in
+// SHARE_CATEGORIES. If anyone removes a name from the literal above without
+// updating the alias, `Exclude<ShareCategoryName, ...>` becomes non-`never`
+// and the conditional resolves to `false`, breaking the `true` assignment.
+type _ShareCategoriesCoverAlias =
+  [Exclude<ShareCategoryName, (typeof SHARE_CATEGORIES)[number]>] extends [never] ? true : false;
+const _shareCategoriesCoverAlias: _ShareCategoriesCoverAlias = true;
+void _shareCategoriesCoverAlias;
 
 const SHARE_CATEGORIES_SET = new Set<string>(SHARE_CATEGORIES);
 
