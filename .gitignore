@@ -27,6 +27,9 @@ _bmad/custom/*.user.toml
 .claude/backups/
 
 # Build output
+# `dist/` covers everything under it including `dist/binaries/` (SEA binaries,
+# Story 5.2) and `dist/sea-prep/` (intermediate SEA blob output). No separate
+# entries needed.
 dist/
 build/
 coverage/

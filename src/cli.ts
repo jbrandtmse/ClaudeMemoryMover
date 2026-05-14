@@ -207,7 +207,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
 }
 
-const __filename = fileURLToPath(import.meta.url);
-if (process.argv[1] !== undefined && process.argv[1] === __filename) {
-  void main();
+// `import.meta.url` is undefined when this file is bundled as CJS for the
+// Node 22 SEA target (see tsup.config.ts config #2). Guard the call so the
+// SEA bundle can `require()` this module without crashing on load. In ESM
+// (the default npm-install path), `import.meta.url` is always defined and
+// the self-execute guard runs normally. The `as string | undefined` cast
+// is load-bearing: TypeScript proves `import.meta.url` is always string
+// in ESM, but esbuild's CJS polyfill (`var import_meta = {}`) makes it
+// undefined at SEA runtime — the cast narrows the type to match reality.
+const metaUrl = import.meta.url as string | undefined;
+if (metaUrl !== undefined) {
+  const __filename = fileURLToPath(metaUrl);
+  if (process.argv[1] !== undefined && process.argv[1] === __filename) {
+    void main();
+  }
 }

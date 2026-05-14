@@ -1,0 +1,8 @@
+# SEA build artifacts — these are NOT shipped via npm.
+# `dist/binaries/**` is GitHub Release payload (Story 5.3).
+# `dist/sea-prep/**` is intermediate SEA blob output.
+# `dist/cmemmov-bundled.js` is the single-file SEA entry; npm-installed
+# users invoke the chunked `dist/cmemmov.js` entry (see package.json:bin).
+dist/binaries/**
+dist/sea-prep/**
+dist/cmemmov-bundled.cjs

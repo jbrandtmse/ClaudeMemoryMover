@@ -52,7 +52,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-09
-last_updated: 2026-05-14 (story 5-1 ready-for-dev → in-progress → review)
+last_updated: 2026-05-14 (story 5-2 ready-for-dev → in-progress → review → done; code review cr-5-2 patched MEDIUM, deferred LOWs)
 project: ClaudeMemoryMover
 
 project_key: NOKEY
@@ -106,8 +106,8 @@ development_status:
   # Epic 5: Distribution, Shell Completion & Release Polish
   epic-5: in-progress
   5-0-epic-4-deferred-cleanup: done
-  5-1-shell-completion-command: review
-  5-2-node-sea-binary-builds-for-four-platforms: backlog
+  5-1-shell-completion-command: done
+  5-2-node-sea-binary-builds-for-four-platforms: done
   5-3-tag-triggered-release-pipeline: backlog
   5-4-documentation-deliverables: backlog
   epic-5-retrospective: optional

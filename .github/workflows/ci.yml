@@ -40,3 +40,38 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run bench:startup
+
+  binary-build:
+    # Story 5.2: produces one Node SEA binary per matrix runner.
+    # Node SEA cannot cross-compile — each target needs a native runner.
+    # macos-latest is arm64 by default (GitHub Actions 2024+); macos-13 is
+    # the last Intel-host image we can pin for the x64 build.
+    name: binary-build (${{ matrix.target }})
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: windows-x64 }
+          - { os: macos-latest, target: macos-arm64 }
+          - { os: macos-13, target: macos-x64 }
+          - { os: ubuntu-latest, target: linux-x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Build SEA binary
+        run: npm run build:binary
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmemmov-${{ matrix.target }}
+          path: dist/binaries/cmemmov-${{ matrix.target }}*
+          if-no-files-found: error

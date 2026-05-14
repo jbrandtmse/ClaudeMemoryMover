@@ -26,6 +26,17 @@ Download Node.js 22+ from [nodejs.org](https://nodejs.org/).
 
 ---
 
+## Download a binary (no Node.js required)
+
+Pre-built single-file binaries for Windows x64, macOS arm64, macOS x64, and
+Linux x64 are produced by CI for every release. See
+[`docs/install-binary.md`](docs/install-binary.md) for download, macOS
+Gatekeeper handling, and per-platform first-run notes.
+
+> Until Story 5.3 wires the GitHub Releases upload step, build a local
+> binary with `npm run build && npm run build:binary` — it lands at
+> `dist/binaries/cmemmov-<platform>-<arch>(.exe)?`.
+
 ## Building from Source
 
 ```sh
