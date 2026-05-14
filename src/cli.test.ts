@@ -217,9 +217,10 @@ describe('cli', () => {
       const cliTryMatches = cliSource.match(/\btry\s*{/g) ?? [];
       expect(cliTryMatches).toHaveLength(1);
 
-      // 'export' (Story 1.10), 'import' (Story 1.11), 'rollback' (Story 1.12),
-      // 'fix-paths' (Story 3.1), and 'share' (Story 4.2) are implemented.
-      const placeholders = ['completion'];
+      // All Epic 1–5 commands are implemented:
+      //  'export' (1.10), 'import' (1.11), 'rollback' (1.12), 'fix-paths' (3.1),
+      //  'share' (4.2), 'completion' (5.1). No placeholders remain.
+      const placeholders: readonly string[] = [];
       for (const name of placeholders) {
         const src = await fs.readFile(
           url.fileURLToPath(new URL(`./commands/${name}.ts`, import.meta.url)),
@@ -231,28 +232,10 @@ describe('cli', () => {
     });
   });
 
-  describe('AC7: real placeholder modules throw CmemmovError(INTERNAL/not implemented)', () => {
-    it.each(['completion'])(
-      '%s placeholder throws INTERNAL with not-implemented hint',
-      async (name) => {
-        const mod = await vi.importActual<{ run: () => Promise<void> }>(
-          `./commands/${name}.js`,
-        );
-        let caught: unknown;
-        try {
-          await mod.run();
-        } catch (e) {
-          caught = e;
-        }
-        expect(caught).toBeDefined();
-        expect(caught).toMatchObject({
-          name: 'CmemmovError',
-          code: 'INTERNAL',
-          hint: 'not yet implemented',
-        });
-      },
-    );
-  });
+  // AC7 (placeholder-throws-INTERNAL) was retired in Story 5.1 once every
+  // top-level command was implemented. Kept as a documentation comment so
+  // future readers know the test was intentional, not lost. If a new
+  // placeholder command is ever added, restore the it.each pattern.
 
   describe('AC11: share command wiring — real flags recognized', () => {
     it('cmemmov share --include-credentials dispatches to share run() (rejection is share-level, not commander)', async () => {

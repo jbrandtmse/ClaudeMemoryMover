@@ -157,13 +157,21 @@ export function buildProgram(): Command {
     await run(allOpts);
   });
 
-  program
+  const completionCmd = program
     .command('completion')
-    .description('Generate shell completion scripts (bash/zsh/fish/pwsh)')
-    .action(async () => {
-      const { run } = await import('./commands/completion.js');
-      await run();
-    });
+    .description('Generate shell completion scripts (bash/zsh/fish/powershell)')
+    .argument('[shell]', 'bash|zsh|fish|powershell (default: auto-detect on POSIX via $SHELL; on Windows you must specify powershell explicitly)')
+    .addHelpText(
+      'after',
+      `\nInstall examples:\n  bash:       eval "$(cmemmov completion bash)"            # one session\n              cmemmov completion bash >> ~/.bashrc        # persistent\n  zsh:        cmemmov completion zsh > "\${fpath[1]}/_cmemmov"\n  fish:       cmemmov completion fish > ~/.config/fish/completions/cmemmov.fish\n  PowerShell: cmemmov completion powershell | Out-String | Invoke-Expression   # one session\n              Append the above line to your $PROFILE for persistence\n\nShell auto-detection:\n  POSIX (Linux/macOS): omit the shell to auto-detect from $SHELL (bash/zsh/fish only).\n  Windows: you MUST specify the shell explicitly (e.g. 'powershell') — Node cannot reliably detect the parent shell on Windows.\n`,
+    );
+
+  completionCmd.action(async () => {
+    const shell = completionCmd.args[0];
+    const allOpts = completionCmd.optsWithGlobals<GlobalCLIOpts>();
+    const { run } = await import('./commands/completion.js');
+    await run(shell, allOpts);
+  });
 
   return program;
 }
