@@ -1,12 +1,13 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { run as exportRun } from '../../src/commands/export.js';
 import { run as importRun } from '../../src/commands/import.js';
 import * as prompts from '../../src/ui/prompts.js';
 import { seedClaudeTree, type TempClaudeDir } from './helpers/temp-claude-dir.js';
 import { mockPlatform, type PlatformMock } from './helpers/platform-mock.js';
+import { snapshotTree } from './helpers/snapshot-tree.js';
 
 // claudeJson is exported unconditionally and isn't user-selectable; the list
 // below names the every other category we want shipped through the bundle.
@@ -42,30 +43,6 @@ async function pathExists(p: string): Promise<boolean> {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
     throw err;
   }
-}
-
-// Byte-for-byte snapshot of every file under `dir` keyed by relative path.
-// Used by the dry-run test to assert that NFR12 (zero changes) holds across
-// the whole subtree, not just at a few sentinel paths. Returns `null` if
-// `dir` does not exist so callers can compare snapshots taken before/after a
-// run that may or may not have created the directory itself.
-async function snapshotTree(dir: string): Promise<Record<string, string> | null> {
-  if (!(await pathExists(dir))) return null;
-  const out: Record<string, string> = {};
-  async function walk(current: string): Promise<void> {
-    const entries = await readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = join(current, entry.name);
-      if (entry.isDirectory()) {
-        await walk(full);
-      } else if (entry.isFile()) {
-        const buf = await readFile(full);
-        out[relative(dir, full)] = buf.toString('base64');
-      }
-    }
-  }
-  await walk(dir);
-  return out;
 }
 
 async function setupSourceAndExport(c: CrossOsCase): Promise<{

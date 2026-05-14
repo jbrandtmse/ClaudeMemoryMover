@@ -3,6 +3,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToSlug } from '../../../src/core/path-engine.js';
 
+export interface SeedShareSourceOpts {
+  sourcePlatform: 'win32' | 'darwin' | 'linux';
+  // When false, the credentials file is NOT created (opt-in for NFR6 negative tests).
+  credentials?: boolean;
+}
+
+export interface ShareSourceTempClaudeDir {
+  // Real tmpdir root containing the seeded tree on disk.
+  tmpRoot: string;
+  // Source-OS-style fake home dir string (LITERAL, not on-disk).
+  sourceHomedir: string;
+}
+
 export interface TempClaudeDir {
   // Source-OS-style fake home (e.g. "C:\\Users\\alice" or "/home/alice").
   // This string never exists on the real disk; it lives in bundle JSON as
@@ -176,5 +189,177 @@ export async function seedClaudeTree(opts: SeedOpts): Promise<TempClaudeDir> {
     projectRealPath: src.projectRealPath,
     projectSlug,
     tmpRoot,
+  };
+}
+
+/**
+ * Seed a share-specific source tree for integration tests.
+ *
+ * Path strategy: all "home-dir-absolute" paths use the real tmpRoot as the
+ * fake home, so sanitization can match them against the mocked sourceHomedir.
+ * Network MCP command strings use LITERAL source-OS forms (not path.join)
+ * because they must NOT be on disk and must survive the network-path check.
+ *
+ * On-disk layout:
+ *   <tmpRoot>/.claude/
+ *     .credentials.json          (unless opts.credentials === false)
+ *     CLAUDE.md                  "# Global memory\n"
+ *     settings.json              { permissions: [...], mcpServers: {...} }
+ *     memory/
+ *       personal_notes.md        (PERSONAL — matched by /^personal/i pattern)
+ *       team-conventions.md      (TEAM — must survive share)
+ *     commands/
+ *       team-cmd.md
+ *   <tmpRoot>/.claude.json       { theme, email, machineId, recentProjects, ... }
+ *
+ * Callers must:
+ *   1. Set `homedirState.value = result.sourceHomedir` before calling shareRun
+ *   2. Set `process.env.CLAUDE_CONFIG_DIR = join(result.tmpRoot, '.claude')`
+ *   3. Clean up `result.tmpRoot` in afterEach
+ */
+export async function seedShareSourceTree(
+  opts: SeedShareSourceOpts,
+): Promise<ShareSourceTempClaudeDir> {
+  const includeCredentials = opts.credentials !== false;
+  const platform = opts.sourcePlatform;
+
+  const tmpRoot = await mkdtemp(join(tmpdir(), 'cmemmov-share-src-'));
+  const realClaudeDir = join(tmpRoot, '.claude');
+  const realClaudeJsonPath = join(tmpRoot, '.claude.json');
+  const realMemoryDir = join(realClaudeDir, 'memory');
+  const realCommandsDir = join(realClaudeDir, 'commands');
+
+  await mkdir(realClaudeDir, { recursive: true });
+  await mkdir(realMemoryDir, { recursive: true });
+  await mkdir(realCommandsDir, { recursive: true });
+
+  // Build source-OS-style path strings using LITERAL templates matching
+  // sourcePlatform conventions. Do NOT use path.join — it uses the runtime
+  // OS separator, which would produce wrong separators when platform differs.
+  //
+  // For the home-dir and local-MCP paths, we need them to be treated as
+  // "absolute paths under sourceHomedir" by the sanitization code, which
+  // checks isAbsolutePath(arg, sourcePlatform). The simplest correct approach:
+  // use the real on-disk tmpRoot for the runtime platform, and LITERAL fake
+  // paths for cross-platform scenarios (when sourcePlatform !== process.platform).
+  //
+  // When mockPlatform(platform) is active, process.platform === platform, so
+  // bundle.sourcePlatform === platform. The sanitization's isAbsolutePath() and
+  // pathStartsWith() both use bundle.sourcePlatform — so fake paths in the
+  // literal style of sourcePlatform will be correctly identified.
+  let sourceHomedir: string;
+  let localMcpCommand: string;
+  let homeDirAbsoluteRule: string;
+  let networkMcpCommand: string;
+  let networkPermissionRule: string;
+  let recentProjectPath: string;
+
+  if (platform === 'win32') {
+    // Use the real on-disk tmpRoot converted to win32 separator style.
+    // When mockPlatform('win32') is active on a posix runner, tmpRoot uses /
+    // which after replace becomes \\ — still a valid-looking win32 path with
+    // a drive letter from the real tmpdir prefix.
+    const winRoot = tmpRoot.replace(/\//g, '\\');
+    // If the path doesn't start with a drive letter (e.g. on Linux runner),
+    // fall back to a fake win32 home so isAbsolutePath('C:\\...', 'win32') works.
+    const hasDrive = /^[a-zA-Z]:/.test(winRoot);
+    const effectiveRoot = hasDrive ? winRoot : `C:\\FakeHome\\testuser`;
+    sourceHomedir = effectiveRoot;
+    localMcpCommand = `${effectiveRoot}\\agents\\local-tool.js`;
+    homeDirAbsoluteRule = `Read(${effectiveRoot}\\agents\\**)`;
+    networkMcpCommand = `\\\\internal\\toolserver\\bin\\server.exe`;
+    networkPermissionRule = 'Read(\\\\internal\\toolserver\\**)';
+    recentProjectPath = `${effectiveRoot}\\projects\\my-app`;
+  } else {
+    // posix (linux/darwin). Use the real on-disk tmpRoot with backslashes
+    // converted to forward slashes.
+    const posixRoot = tmpRoot.replace(/\\/g, '/');
+    // If the path doesn't start with / (e.g. on Windows runner where tmpdir
+    // starts with a drive letter like C:/...), use a fake posix home so that
+    // isAbsolutePath('/home/...', 'linux') correctly identifies it as absolute.
+    const isAbsolutePosix = posixRoot.startsWith('/');
+    const effectiveRoot = isAbsolutePosix ? posixRoot : `/home/testuser/share-test`;
+    sourceHomedir = effectiveRoot;
+    localMcpCommand = `${effectiveRoot}/agents/local-tool.js`;
+    homeDirAbsoluteRule = `Read(${effectiveRoot}/agents/**)`;
+    networkMcpCommand = `//internal/toolserver/bin/server`;
+    networkPermissionRule = 'Read(//internal/toolserver/**)';
+    recentProjectPath = `${effectiveRoot}/projects/my-app`;
+  }
+
+  const relativeRule = 'Read(./local-thing)';
+  const bashRule = 'Bash(git status)';
+
+  // Credentials file (toggled by opts.credentials — default true)
+  if (includeCredentials) {
+    await writeFile(
+      join(realClaudeDir, '.credentials.json'),
+      JSON.stringify({ oauthToken: 'secret-test-token-EYES-ONLY' }, null, 2),
+      'utf8',
+    );
+  }
+
+  // Global CLAUDE.md
+  await writeFile(join(realClaudeDir, 'CLAUDE.md'), '# Global memory\n', 'utf8');
+
+  // Memory files: personal (should be stripped) and team (should be preserved)
+  await writeFile(
+    join(realMemoryDir, 'personal_notes.md'),
+    '# Personal\n\nLocal-only notes that should NEVER ship.\n',
+    'utf8',
+  );
+  await writeFile(
+    join(realMemoryDir, 'team-conventions.md'),
+    '# Team conventions\n\nThese SHOULD ship.\n',
+    'utf8',
+  );
+
+  // Custom command
+  await writeFile(
+    join(realCommandsDir, 'team-cmd.md'),
+    '# /team-cmd\n\nTeam-relevant slash command.\n',
+    'utf8',
+  );
+
+  const mcpServers: Record<string, unknown> = {
+    'fileserver-local': { command: localMcpCommand },
+    'internal-toolserver': { command: networkMcpCommand },
+    'bare-program': { command: 'npx', args: ['-y', '@modelcontextprotocol/server-X'] },
+  };
+
+  await writeFile(
+    join(realClaudeDir, 'settings.json'),
+    JSON.stringify(
+      {
+        permissions: [homeDirAbsoluteRule, relativeRule, networkPermissionRule, bashRule],
+        mcpServers,
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  // .claude.json with allowlist + deny fields
+  await writeFile(
+    realClaudeJsonPath,
+    JSON.stringify(
+      {
+        theme: 'dark',
+        email: 'alice@example.com',
+        machineId: 'fake-machine-uuid-EYES-ONLY',
+        recentProjects: [{ path: recentProjectPath }],
+        lastSessionCwd: recentProjectPath,
+        experiments: ['plus'],
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  return {
+    tmpRoot,
+    sourceHomedir,
   };
 }
