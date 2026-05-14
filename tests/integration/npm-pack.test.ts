@@ -136,6 +136,21 @@ describe('npm pack — tarball whitelist (AC7)', () => {
     },
   );
 
+  // AC8 (Story 5.4): docs/ lives in the repo but must NOT ship in the npm
+  // tarball. The `files` whitelist in package.json (`dist/**/*.js`,
+  // `dist/**/*.d.ts`, `README.md`, `LICENSE`) excludes it by virtue of being
+  // an allowlist; this assertion makes the invariant mechanical so a future
+  // change that accidentally adds `docs/**` to `files` fails loudly here.
+  it.skipIf(!HAS_NPM)(
+    'tarball does NOT include the docs/ directory (AC8)',
+    () => {
+      const packageDir = join(extractedRoot, 'package');
+      const tarballEntries = readdirSync(packageDir);
+      expect(tarballEntries).not.toContain('docs');
+      expect(tarballEntries).not.toContain('docs/');
+    },
+  );
+
   it.skipIf(!HAS_NPM)(
     'extracted `node dist/cmemmov.js --version` exits 0 with expected version',
     () => {

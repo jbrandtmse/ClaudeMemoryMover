@@ -52,7 +52,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-09
-last_updated: 2026-05-14 (story 5-3 moved review → done; code review cr-5-3 patched referential-integrity LOW, deferred 2 LOWs)
+last_updated: 2026-05-14 (story 5-4 moved ready-for-dev → in-progress → review)
 project: ClaudeMemoryMover
 
 project_key: NOKEY
@@ -109,5 +109,5 @@ development_status:
   5-1-shell-completion-command: done
   5-2-node-sea-binary-builds-for-four-platforms: done
   5-3-tag-triggered-release-pipeline: done
-  5-4-documentation-deliverables: backlog
+  5-4-documentation-deliverables: review
   epic-5-retrospective: optional
