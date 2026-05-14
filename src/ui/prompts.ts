@@ -294,3 +294,71 @@ export function createSpinner(): SpinnerHandle {
     },
   };
 }
+
+export type ShareWriteChoice = 'yes' | 'no' | 'edit';
+
+export async function confirmShareWrite(opts: { silent: boolean }): Promise<ShareWriteChoice> {
+  if (opts.silent) {
+    return 'yes';
+  }
+
+  type Choice = ShareWriteChoice;
+  const result = await select<Choice>({
+    message: 'Write the team bundle?',
+    options: [
+      { value: 'yes', label: 'Yes (write bundle)' },
+      { value: 'no', label: 'No (cancel)' },
+      { value: 'edit', label: 'Edit (override patterns)' },
+    ],
+  });
+
+  bailOnCancel<Choice>(result);
+  return result;
+}
+
+export async function promptOverridePatterns(): Promise<{
+  includePattern: string[];
+  excludePattern: string[];
+}> {
+  const includeRaw = await text({
+    message: 'Additional --include-pattern globs (comma-separated, or leave blank):',
+    placeholder: 'e.g. todo*, notes*',
+  });
+  bailOnCancel<string>(includeRaw);
+
+  const excludeRaw = await text({
+    message: 'Additional --exclude-pattern globs to remove from stock (comma-separated, or leave blank):',
+    placeholder: 'e.g. todo*',
+  });
+  bailOnCancel<string>(excludeRaw);
+
+  const includePattern = (typeof includeRaw === 'string' ? includeRaw : '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  const excludePattern = (typeof excludeRaw === 'string' ? excludeRaw : '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  return { includePattern, excludePattern };
+}
+
+export async function selectShareCategories(opts: {
+  silent: boolean;
+  defaults: readonly ClaudeCategory[];
+}): Promise<ClaudeCategory[]> {
+  if (opts.silent) {
+    return [...opts.defaults];
+  }
+
+  const result = await multiselect<ClaudeCategory>({
+    message: 'Select categories to include in the team bundle',
+    options: opts.defaults.map((c) => ({ value: c, label: c })),
+    initialValues: [...opts.defaults],
+    required: true,
+  });
+
+  bailOnCancel<ClaudeCategory[]>(result);
+  return result;
+}

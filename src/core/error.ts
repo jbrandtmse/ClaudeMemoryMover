@@ -8,6 +8,7 @@ export type ErrorCode =
   | 'ROLLBACK_NOT_AVAILABLE'
   | 'IMPORT_PARTIAL'
   | 'EXPORT_NOTHING_SELECTED'
+  // share command rejects --include-credentials (NFR6); other share-time invalid-source conditions can also use this
   | 'SHARE_INVALID_SOURCE'
   | 'FIXPATHS_NO_PROJECTS'
   | 'INTERNAL';

@@ -853,4 +853,55 @@ describe('applySanitization (strip-personal)', () => {
       expect(kept?.map((m) => m.filename)).toContain('notes.md');
     });
   });
+
+  // Story 4.2: overrides.personalPatterns parameter
+  describe('overrides.personalPatterns (Story 4.2)', () => {
+    it('uses custom patterns when overrides.personalPatterns is provided — strips todo2 but not personal', () => {
+      const bundle = makeBundle({
+        global: {
+          memories: [
+            { filename: 'todo2_list.md', content: '# Todo2' },
+            { filename: 'personal_notes.md', content: '# Personal' },
+            { filename: 'shared.md', content: '# Shared' },
+          ],
+        },
+      });
+      const sanitized = applySanitization(bundle, 'strip-personal', {
+        personalPatterns: [/^todo2/i],
+      });
+      const kept = sanitized.global.memories as { filename: string }[] | undefined;
+      const filenames = kept?.map((m) => m.filename) ?? [];
+      expect(filenames).not.toContain('todo2_list.md');
+      expect(filenames).toContain('personal_notes.md');
+      expect(filenames).toContain('shared.md');
+    });
+
+    it('when overrides.personalPatterns is omitted, stock PERSONAL_FILENAME_PATTERNS apply (behavior unchanged)', () => {
+      const bundle = makeBundle({
+        global: {
+          memories: [
+            { filename: 'personal_notes.md', content: '# Personal' },
+            { filename: 'shared.md', content: '# Shared' },
+          ],
+        },
+      });
+      const sanitized = applySanitization(bundle, 'strip-personal');
+      const kept = sanitized.global.memories as { filename: string }[] | undefined;
+      const filenames = kept?.map((m) => m.filename) ?? [];
+      expect(filenames).not.toContain('personal_notes.md');
+      expect(filenames).toContain('shared.md');
+    });
+
+    it('credentials are ALWAYS stripped even when overrides.personalPatterns is empty', () => {
+      const bundle = makeBundle({
+        hasCredentials: true,
+        credentials: { content: { token: 'secret' }, wasRedacted: false },
+      });
+      const sanitized = applySanitization(bundle, 'strip-personal', {
+        personalPatterns: [],
+      });
+      expect(sanitized.credentials?.content).toBeNull();
+      expect(sanitized.credentials?.wasRedacted).toBe(true);
+    });
+  });
 });

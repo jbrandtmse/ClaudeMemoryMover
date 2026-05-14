@@ -218,9 +218,8 @@ describe('cli', () => {
       expect(cliTryMatches).toHaveLength(1);
 
       // 'export' (Story 1.10), 'import' (Story 1.11), 'rollback' (Story 1.12),
-      // and 'fix-paths' (Story 3.1 scan phase) are implemented and are no
-      // longer placeholders.
-      const placeholders = ['share', 'completion'];
+      // 'fix-paths' (Story 3.1), and 'share' (Story 4.2) are implemented.
+      const placeholders = ['completion'];
       for (const name of placeholders) {
         const src = await fs.readFile(
           url.fileURLToPath(new URL(`./commands/${name}.ts`, import.meta.url)),
@@ -233,7 +232,7 @@ describe('cli', () => {
   });
 
   describe('AC7: real placeholder modules throw CmemmovError(INTERNAL/not implemented)', () => {
-    it.each(['share', 'completion'])(
+    it.each(['completion'])(
       '%s placeholder throws INTERNAL with not-implemented hint',
       async (name) => {
         const mod = await vi.importActual<{ run: () => Promise<void> }>(
@@ -253,6 +252,32 @@ describe('cli', () => {
         });
       },
     );
+  });
+
+  describe('AC11: share command wiring — real flags recognized', () => {
+    it('cmemmov share --include-credentials dispatches to share run() (rejection is share-level, not commander)', async () => {
+      tracker.runImpl.share = async () => {
+        await Promise.resolve();
+      };
+      await runCli(['share', '--include-credentials']);
+      expect(tracker.loaded).toContain('share');
+    });
+
+    it('cmemmov share --output foo.cmemmov dispatches to share run()', async () => {
+      tracker.runImpl.share = async () => {
+        await Promise.resolve();
+      };
+      await runCli(['share', '--output', 'foo.cmemmov']);
+      expect(tracker.loaded).toContain('share');
+    });
+
+    it('cmemmov share --include-pattern todo* --exclude-pattern private* dispatches to share run()', async () => {
+      tracker.runImpl.share = async () => {
+        await Promise.resolve();
+      };
+      await runCli(['share', '--include-pattern', 'todo*', '--exclude-pattern', 'private*']);
+      expect(tracker.loaded).toContain('share');
+    });
   });
 
   describe('AC8: command run() is invoked only on dispatch', () => {

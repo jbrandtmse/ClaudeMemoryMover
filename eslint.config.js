@@ -88,12 +88,12 @@ export default tseslint.config(
       }],
     },
   },
-  // Override for commands/export.ts: writes the export bundle artifact to a
-  // user-supplied output path outside ~/.claude/. WriteGate is reserved for
-  // writes to the user's Claude Code home; bundle output uses fs directly.
+  // Override for commands/export.ts and commands/share.ts: both write bundle
+  // artifacts to user-supplied output paths outside ~/.claude/. WriteGate is
+  // reserved for writes to the user's Claude Code home; bundle output uses fs directly.
   // The homedir restriction still applies.
   {
-    files: ['src/commands/export.ts'],
+    files: ['src/commands/export.ts', 'src/commands/share.ts'],
     rules: {
       'no-restricted-imports': ['error', {
         paths: [

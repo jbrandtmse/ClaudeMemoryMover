@@ -81,12 +81,13 @@ interface MemoryFile {
 export function stripPersonalMemories(
   memories: MemoryFile[],
   scope: string,
+  patterns: readonly RegExp[] = PERSONAL_FILENAME_PATTERNS,
 ): { kept: MemoryFile[]; strippedFilenames: string[] } {
   const kept: MemoryFile[] = [];
   const strippedFilenames: string[] = [];
 
   for (const mem of memories) {
-    if (isPersonalFilename(mem.filename) || hasFrontmatterPersonalTrue(mem.content)) {
+    if (isPersonalFilename(mem.filename, patterns) || hasFrontmatterPersonalTrue(mem.content)) {
       strippedFilenames.push(`${scope}/${mem.filename}`);
     } else {
       kept.push(mem);
@@ -96,8 +97,8 @@ export function stripPersonalMemories(
   return { kept, strippedFilenames };
 }
 
-function isPersonalFilename(filename: string): boolean {
-  return PERSONAL_FILENAME_PATTERNS.some((re) => re.test(filename));
+function isPersonalFilename(filename: string, patterns: readonly RegExp[] = PERSONAL_FILENAME_PATTERNS): boolean {
+  return patterns.some((re) => re.test(filename));
 }
 
 // Minimal line-scan for `personal: true` in YAML frontmatter (no YAML library).
@@ -248,7 +249,11 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 // NFR6: credentials strip is invariant under 'strip-personal'; no caller-supplied option can bypass it.
-export function applySanitization(bundle: Bundle, profile: SanitizationProfileName): Bundle {
+export function applySanitization(
+  bundle: Bundle,
+  profile: SanitizationProfileName,
+  overrides?: { personalPatterns?: readonly RegExp[] },
+): Bundle {
   if (profile === 'redact-credentials') {
     if (!bundle.credentials) return bundle;
     return {
@@ -258,7 +263,8 @@ export function applySanitization(bundle: Bundle, profile: SanitizationProfileNa
   }
 
   // strip-personal profile
-  return applyStripPersonal(bundle);
+  const patterns = overrides?.personalPatterns ?? PERSONAL_FILENAME_PATTERNS;
+  return applyStripPersonal(bundle, patterns);
 }
 
 interface WasRedacted {
@@ -269,7 +275,7 @@ interface WasRedacted {
   claudeJsonFields?: string[];
 }
 
-function applyStripPersonal(bundle: Bundle): Bundle {
+function applyStripPersonal(bundle: Bundle, patterns: readonly RegExp[] = PERSONAL_FILENAME_PATTERNS): Bundle {
   const sourceHomedir = bundle.sourceHomedir;
   const platform = bundle.sourcePlatform;
   const redacted: WasRedacted = {};
@@ -284,7 +290,7 @@ function applyStripPersonal(bundle: Bundle): Bundle {
   // Global memories
   let globalMemories = bundle.global.memories;
   if (globalMemories !== undefined) {
-    const result = stripPersonalMemories(globalMemories, 'global');
+    const result = stripPersonalMemories(globalMemories, 'global', patterns);
     globalMemories = result.kept;
     if (result.strippedFilenames.length > 0) {
       redacted.personalMemoryFiles = [
@@ -367,7 +373,7 @@ function applyStripPersonal(bundle: Bundle): Bundle {
   const projects: Project[] = bundle.projects.map((proj) => {
     let projMemories = proj.memories;
     if (projMemories !== undefined) {
-      const result = stripPersonalMemories(projMemories, proj.slug);
+      const result = stripPersonalMemories(projMemories, proj.slug, patterns);
       projMemories = result.kept;
       if (result.strippedFilenames.length > 0) {
         redacted.personalMemoryFiles = [

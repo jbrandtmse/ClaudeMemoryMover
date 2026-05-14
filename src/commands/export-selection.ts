@@ -108,6 +108,7 @@ interface BuildBundleOpts {
   claudeVersion: string;
   credentialsContent: unknown;
   sourceHomedir: string;
+  profile?: 'team-baseline';
 }
 
 export function buildBundle(opts: BuildBundleOpts): Bundle {
@@ -168,6 +169,7 @@ export function buildBundle(opts: BuildBundleOpts): Bundle {
     sourcePlatform: assertSupportedPlatform(process.platform),
     sourceHomedir: opts.sourceHomedir,
     claudeVersion: opts.claudeVersion,
+    ...(opts.profile !== undefined ? { profile: opts.profile } : {}),
     hasCredentials: opts.includeCredentials,
     projects,
     global,

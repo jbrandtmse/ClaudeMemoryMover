@@ -56,6 +56,7 @@ export const BundleSchema = z.object({
   sourcePlatform: z.enum(['win32', 'darwin', 'linux']),
   sourceHomedir: z.string(),
   claudeVersion: z.string(),
+  profile: z.literal('team-baseline').optional(),
   hasCredentials: z.boolean(),
   warning: z.string().optional(),
   integrity: z.string().optional(),

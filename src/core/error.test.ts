@@ -104,6 +104,22 @@ describe('CmemmovError', () => {
     });
   });
 
+  describe('SHARE_INVALID_SOURCE', () => {
+    it('maps SHARE_INVALID_SOURCE to exit code 2 (fatal)', () => {
+      const err = new CmemmovError({ code: 'SHARE_INVALID_SOURCE' });
+      expect(err.exitCode).toBe(2);
+    });
+
+    it('captures hint for SHARE_INVALID_SOURCE', () => {
+      const err = new CmemmovError({
+        code: 'SHARE_INVALID_SOURCE',
+        hint: '--include-credentials is not supported by share (NFR6)',
+      });
+      expect(err.hint).toBe('--include-credentials is not supported by share (NFR6)');
+      expect(err.exitCode).toBe(2);
+    });
+  });
+
   describe('message formatting', () => {
     it('includes the error code in the message', () => {
       const err = new CmemmovError({ code: 'BACKUP_FAILED' });

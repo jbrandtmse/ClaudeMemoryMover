@@ -4,6 +4,7 @@ import { CmemmovError } from './core/error.js';
 import { Output } from './ui/output.js';
 import { VERSION } from './version.js';
 import type { FixPathsOpts as FixPathsCLIOpts } from './commands/fix-paths.js';
+import type { ShareOpts as ShareCLIOpts } from './commands/share.js';
 
 interface GlobalCLIOpts {
   silent?: boolean;
@@ -40,6 +41,10 @@ function parseProjectPath(val: string, prev: Record<string, string>): Record<str
 }
 
 function parseRemap(val: string, prev: string[]): string[] {
+  return [...prev, val];
+}
+
+function parseRepeated(val: string, prev: string[]): string[] {
   return [...prev, val];
 }
 
@@ -113,13 +118,30 @@ export function buildProgram(): Command {
     await run(allOpts);
   });
 
-  program
+  const shareCmd = program
     .command('share')
     .description('Export a sanitized bundle for sharing with a team')
-    .action(async () => {
-      const { run } = await import('./commands/share.js');
-      await run();
-    });
+    .option('--categories <list>', 'comma-separated team categories (camelCase or kebab-case)')
+    .option('--output <path>', 'output file path (default: team-baseline-YYYY-MM-DD.cmemmov in cwd)')
+    .option('--include-credentials', 'rejected at decision-build time per NFR6 (declared so commander surfaces a real error)')
+    .option(
+      '--include-pattern <glob>',
+      'additional personal-filename pattern (repeatable)',
+      parseRepeated,
+      [] as string[],
+    )
+    .option(
+      '--exclude-pattern <glob>',
+      'pattern to remove from stock PERSONAL_FILENAME_PATTERNS (repeatable)',
+      parseRepeated,
+      [] as string[],
+    );
+
+  shareCmd.action(async () => {
+    const allOpts = shareCmd.optsWithGlobals<ShareCLIOpts>();
+    const { run } = await import('./commands/share.js');
+    await run(allOpts);
+  });
 
   const rollbackCmd = program
     .command('rollback')

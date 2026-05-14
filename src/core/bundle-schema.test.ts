@@ -70,6 +70,22 @@ describe('bundle-schema', () => {
       expect(() => BundleSchema.parse(bundle)).toThrow(ZodError);
     });
 
+    it('accepts a bundle with profile: "team-baseline"', () => {
+      const bundle = { ...validMinimal, profile: 'team-baseline' };
+      const parsed = BundleSchema.parse(bundle);
+      expect(parsed.profile).toBe('team-baseline');
+    });
+
+    it('accepts a bundle without the profile field (optional, old bundles)', () => {
+      const parsed = BundleSchema.parse(validMinimal);
+      expect(parsed.profile).toBeUndefined();
+    });
+
+    it('rejects profile: "redact-credentials" — not a valid literal value', () => {
+      const bundle = { ...validMinimal, profile: 'redact-credentials' };
+      expect(() => BundleSchema.parse(bundle)).toThrow(ZodError);
+    });
+
     it('throws ZodError when exportedAt is not a valid ISO 8601 datetime', () => {
       const bundle = { ...validMinimal, exportedAt: 'not-a-date' };
       expect(() => BundleSchema.parse(bundle)).toThrow(ZodError);
