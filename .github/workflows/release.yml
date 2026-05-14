@@ -1,0 +1,202 @@
+# =============================================================================
+# Tag-triggered release pipeline for cmemmov.
+#
+# WHAT THIS WORKFLOW DOES
+# -----------------------
+# Triggered by pushing a tag matching `v*` (e.g., `v0.2.0`) or by manual
+# `workflow_dispatch`. Runs the full CI matrix, publishes to npm with
+# provenance, builds four Node SEA binaries (Windows x64, macOS arm64,
+# macOS x64, Linux x64), and attaches them to the matching GitHub Release.
+#
+# HOW TO TRIGGER IT
+# -----------------
+# Recommended flow (preserves manually-written release notes):
+#   1. Draft a GitHub Release in the UI: pick the tag name (e.g., v0.2.0),
+#      write the body, save as **draft** (do NOT publish yet).
+#   2. Locally: `npm version <patch|minor|major>` — bumps package.json and
+#      creates the tag.
+#   3. `git push origin main --tags` — pushes the version bump commit AND
+#      the tag in one go.
+#   4. This workflow fires off the tag push; on success the draft release
+#      is flipped to published with the four binaries attached.
+#
+# Alternative flow: push the tag first, then draft notes. If no draft
+# exists when this workflow runs, a new release is created with empty
+# body and the four assets — you can edit the body afterwards.
+#
+# REQUIRED REPO SECRET
+# --------------------
+# `NPM_TOKEN` — an npm "automation" token with publish-only scope.
+# Do NOT use an admin-scoped token. Generate at https://www.npmjs.com/settings/<user>/tokens
+# and add via Settings → Secrets and variables → Actions → New repository secret.
+#
+# PROVENANCE TRIFECTA (do NOT remove any one piece)
+# -------------------------------------------------
+#   1. `--provenance` flag on `npm publish`
+#   2. `permissions: { id-token: write }` at the workflow level
+#   3. `actions/setup-node@v4` with `registry-url: 'https://registry.npmjs.org'`
+# Removing any of these silently strips the provenance attestation. See
+# https://docs.npmjs.com/generating-provenance-statements for details.
+#
+# IF A BINARY BUILD FAILS AFTER `npm publish` SUCCEEDS
+# ----------------------------------------------------
+# The user-visible state will be "published to npm, no binaries on the
+# GitHub Release". The `release` job is gated on `binary-builds`, so a
+# binary failure leaves the GitHub Release untouched. Recovery options:
+#   (a) Re-run failed shards via the Actions UI; on success the `release`
+#       job picks up where it stopped (artifacts persist for the run).
+#   (b) Bump the version (`npm version patch`) and re-tag — the safest path
+#       since the npm version is canonical and immutable.
+# General pipeline-interruption recovery: see
+# `_bmad-output/implementation-artifacts/runbook-pipeline-recovery.md`.
+#
+# DRY-RUN PROCEDURE
+# -----------------
+# To exercise the wiring without burning a real version number, see
+# `docs/contributing.md` → "Dry-running the release pipeline". TL;DR: bump
+# to `0.1.0-dry.<n>`, tag, push, watch, then `npm unpublish` within 72 hours.
+#
+# LOCAL LINT
+# ----------
+# `actionlint` is recommended but not currently wired into pre-commit. To
+# lint locally: `actionlint .github/workflows/release.yml`. Install via
+# https://github.com/rhysd/actionlint/releases.
+# =============================================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v0.2.0)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Mirrors `.github/workflows/ci.yml::check` verbatim. Inlined rather than
+  # extracted into a reusable `workflow_call` to keep the release gate visible
+  # in one place. If `ci.yml::check` evolves, mirror the change here too.
+  check-matrix:
+    name: check-matrix (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
+  npm-publish:
+    name: npm-publish
+    needs: check-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          # `registry-url` is REQUIRED for npm provenance — see trifecta note
+          # at top of file. It also makes `NODE_AUTH_TOKEN` map to the correct
+          # `.npmrc` registry.
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm run build
+      # Dist-tag rule: 0.x → `next`, 1.x+ → `latest`. Keeps v0 pre-releases
+      # off the default install path until we cut a 1.0.
+      - name: Compute dist-tag
+        id: dist-tag
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [[ "$version" == 0.* ]]; then
+            echo "tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+      # `NODE_AUTH_TOKEN` is the ONLY place the npm token surfaces. Do NOT
+      # interpolate `secrets.NPM_TOKEN` into the `run:` script directly — that
+      # would risk leakage via `set -x` or job-log secret expansion (AC8).
+      - name: npm publish
+        run: npm publish --provenance --access public --tag "${{ steps.dist-tag.outputs.tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Matrix MUST stay in sync with `SUPPORTED_TARGETS` in `scripts/build-binary.mjs`.
+  # Drift here means the release ships binaries for targets the build script
+  # rejects (or vice versa). Single source of truth = `build-binary.mjs`.
+  binary-builds:
+    name: binary-builds (${{ matrix.target }})
+    needs: [check-matrix, npm-publish]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: windows-x64 }
+          - { os: macos-latest, target: macos-arm64 }
+          - { os: macos-13, target: macos-x64 }
+          - { os: ubuntu-latest, target: linux-x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Build SEA binary
+        run: npm run build:binary
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmemmov-${{ matrix.target }}
+          path: dist/binaries/cmemmov-${{ matrix.target }}*
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: [npm-publish, binary-builds]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cmemmov-*
+          merge-multiple: true
+          path: dist/binaries
+      # NO `body:` field — preserves any draft release notes the maintainer
+      # wrote pre-tag (AC7). NO `generate_release_notes` — manual notes are
+      # the v0.x convention (see Story 5.3 Dev Notes). `softprops/action-gh-release@v2`
+      # defaults to preserving an existing release's body when `body:` is unset.
+      # `tag_name` prefers the manual `workflow_dispatch` input when provided
+      # (lets a maintainer re-run against a specific tag from any ref). For
+      # tag-push events `inputs.tag` is empty and `github.ref_name` is the
+      # tag itself.
+      - name: Attach binaries and publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: dist/binaries/cmemmov-*
+          fail_on_unmatched_files: true
+          draft: false
