@@ -52,7 +52,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-09
-last_updated: 2026-05-13 (story 4-0 moved review → done)
+last_updated: 2026-05-13 (story 4-1 moved review → done)
 project: ClaudeMemoryMover
 
 project_key: NOKEY
@@ -98,7 +98,7 @@ development_status:
   # Epic 4: Team Sharing & Sanitization (Taylor's Journey)
   epic-4: in-progress
   4-0-epic-3-deferred-cleanup: done
-  4-1-strip-personal-sanitization-profile: backlog
+  4-1-strip-personal-sanitization-profile: done
   4-2-share-command-implementation: backlog
   4-3-share-and-team-bundle-round-trip-integration-tests: backlog
   epic-4-retrospective: optional

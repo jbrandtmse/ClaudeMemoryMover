@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const BUNDLE_FORMAT_VERSION = '1.0.0';
+export const BUNDLE_FORMAT_VERSION = '1.1.0';
 
 const MemoryFileSchema = z.object({
   filename: z.string(),
@@ -42,14 +42,24 @@ const CredentialsSchema = z.object({
   wasRedacted: z.boolean(),
 }).strict();
 
+const WasRedactedSchema = z.object({
+  credentials: z.boolean().optional(),
+  personalMemoryFiles: z.array(z.string()).optional(),
+  homeDirPermissionRules: z.array(z.string()).optional(),
+  localMcpServers: z.array(z.string()).optional(),
+  claudeJsonFields: z.array(z.string()).optional(),
+}).strict();
+
 export const BundleSchema = z.object({
   version: z.string(),
   exportedAt: z.string().datetime(),
   sourcePlatform: z.enum(['win32', 'darwin', 'linux']),
+  sourceHomedir: z.string(),
   claudeVersion: z.string(),
   hasCredentials: z.boolean(),
   warning: z.string().optional(),
   integrity: z.string().optional(),
+  wasRedacted: WasRedactedSchema.optional(),
   projects: z.array(ProjectSchema),
   global: GlobalSchema,
   credentials: CredentialsSchema.optional(),

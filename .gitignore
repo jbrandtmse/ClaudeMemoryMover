@@ -33,3 +33,6 @@ coverage/
 
 # Large perf fixtures (materialized at runtime by builder script)
 tests/fixtures/large-bundles/
+
+# Dev scratch scripts (not part of the build)
+_compute_hashes.mjs

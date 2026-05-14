@@ -10,14 +10,14 @@ import withCredentials from '../../tests/fixtures/bundles/with-credentials.json'
 describe('bundle-schema', () => {
   describe('BUNDLE_FORMAT_VERSION', () => {
     it('exposes the current bundle format version constant', () => {
-      expect(BUNDLE_FORMAT_VERSION).toBe('1.0.0');
+      expect(BUNDLE_FORMAT_VERSION).toBe('1.1.0');
     });
   });
 
   describe('BundleSchema.parse', () => {
     it('accepts a valid minimal bundle and returns a typed bundle', () => {
       const parsed = BundleSchema.parse(validMinimal);
-      expect(parsed.version).toBe('1.0.0');
+      expect(parsed.version).toBe('1.1.0');
       expect(parsed.sourcePlatform).toBe('linux');
       expect(parsed.projects).toHaveLength(1);
       expect(parsed.projects[0]?.slug).toBe('-home-user-myapp');

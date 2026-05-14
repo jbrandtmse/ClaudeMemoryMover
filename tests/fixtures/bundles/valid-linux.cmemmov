@@ -1,7 +1,8 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "exportedAt": "2026-05-09T12:00:00.000Z",
   "sourcePlatform": "linux",
+  "sourceHomedir": "/home/user",
   "claudeVersion": "2.1.133",
   "hasCredentials": false,
   "projects": [
@@ -21,5 +22,5 @@
       "model": "sonnet"
     }
   },
-  "integrity": "3fb0467e92350dd2b6b3c09bfe19b23d1e0debe49d6fe4162dc9470d2a83cd1b"
+  "integrity": "9f5fd09134edd40eef3c6ad6fdddf4eb31e1003cbb20519fb4483c934f68eeff"
 }

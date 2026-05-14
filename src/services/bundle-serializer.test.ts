@@ -7,9 +7,10 @@ import { BundleSchema, type Bundle } from '../core/bundle-schema.js';
 
 function makeBundle(overrides: Partial<Bundle> = {}): Bundle {
   return BundleSchema.parse({
-    version: '1.0.0',
+    version: '1.1.0',
     exportedAt: '2026-05-09T12:00:00.000Z',
     sourcePlatform: 'linux',
+    sourceHomedir: '/home/user',
     claudeVersion: '2.1.133',
     hasCredentials: false,
     projects: [],

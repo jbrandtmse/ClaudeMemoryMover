@@ -1,7 +1,8 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "exportedAt": "2026-05-09T12:00:00.000Z",
   "sourcePlatform": "win32",
+  "sourceHomedir": "C:\\Users\\Josh",
   "claudeVersion": "2.1.133",
   "hasCredentials": false,
   "projects": [
@@ -17,5 +18,5 @@
     }
   ],
   "global": {},
-  "integrity": "11453073f1a2ff49097741cb51c70cfd420c687651f8e115c1787864297b4557"
+  "integrity": "1e1815664a2b51d99f74d42a5f75a9702ca1007fb2512c94393cb0518f1b40a2"
 }

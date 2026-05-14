@@ -107,6 +107,7 @@ interface BuildBundleOpts {
   projectOriginalPaths: Map<string, string>;
   claudeVersion: string;
   credentialsContent: unknown;
+  sourceHomedir: string;
 }
 
 export function buildBundle(opts: BuildBundleOpts): Bundle {
@@ -165,6 +166,7 @@ export function buildBundle(opts: BuildBundleOpts): Bundle {
     version: BUNDLE_FORMAT_VERSION,
     exportedAt: new Date().toISOString(),
     sourcePlatform: assertSupportedPlatform(process.platform),
+    sourceHomedir: opts.sourceHomedir,
     claudeVersion: opts.claudeVersion,
     hasCredentials: opts.includeCredentials,
     projects,

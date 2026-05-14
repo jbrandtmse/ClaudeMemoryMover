@@ -14,3 +14,8 @@ export function locateClaude(): ClaudeLocation {
   const home = os.homedir();
   return { claudeDir: join(home, '.claude'), claudeJson: join(home, '.claude.json') };
 }
+
+// Single allowed os.homedir() call site (enforced by no-restricted-imports ESLint rule).
+export function getSourceHomedir(): string {
+  return os.homedir();
+}

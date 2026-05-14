@@ -54,6 +54,7 @@ vi.mock('node:fs/promises', async () => {
 
 vi.mock('../services/claude-locator.js', () => ({
   locateClaude: vi.fn(() => ({ claudeDir: '/c', claudeJson: '/c.json' })),
+  getSourceHomedir: vi.fn(() => '/home/user'),
 }));
 
 vi.mock('../services/claude-reader.js', () => ({

@@ -156,10 +156,12 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map(),
       claudeVersion: '2.1.133',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(bundle.version).toBe(BUNDLE_FORMAT_VERSION);
     expect(bundle.claudeVersion).toBe('2.1.133');
     expect(bundle.hasCredentials).toBe(false);
+    expect(bundle.sourceHomedir).toBe('/home/u');
     expect(bundle.projects).toEqual([]);
     expect(bundle.global).toEqual({});
     expect(bundle.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -178,6 +180,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map(),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(bundle.global.memories).toHaveLength(1);
     expect(bundle.global.settings).toBeUndefined();
@@ -194,6 +197,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map([['-home-u-a', '/home/u/a']]),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(bundle.projects).toEqual([
       { slug: '-home-u-a', originalPath: '/home/u/a' },
@@ -219,6 +223,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map([['-home-u-app', '/home/u/app']]),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(without.projects[0]?.memories).toBeUndefined();
 
@@ -230,6 +235,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map([['-home-u-app', '/home/u/app']]),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(withMem.projects[0]?.memories).toHaveLength(1);
   });
@@ -251,6 +257,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map([['-home-u-app', '/home/u/app']]),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(bundle.projects[0]?.sessions).toHaveLength(1);
   });
@@ -268,6 +275,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map(),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(onlyMcp.global.mcpConfig).toEqual({ servers: { x: { command: 'y' } } });
     expect(onlyMcp.global.settings).toBeUndefined();
@@ -280,6 +288,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map(),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(both.global.settings).toBeDefined();
     expect(both.global.mcpConfig).toBeUndefined();
@@ -294,6 +303,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map(),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(bundle.global.claudeJson).toEqual({ firstStartTime: 'x' });
   });
@@ -307,6 +317,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map(),
       claudeVersion: '2',
       credentialsContent: { token: 'abc' },
+      sourceHomedir: '/home/u',
     });
     expect(bundle.hasCredentials).toBe(true);
     expect(bundle.warning).toMatch(/credentials/i);
@@ -322,6 +333,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map(),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(bundle.warning).toBeUndefined();
     expect(bundle.credentials).toBeUndefined();
@@ -340,6 +352,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map([['s', '/p']]),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(bundle.global.claudeMd).toBe('global content');
     expect(bundle.projects[0]?.claudeMd).toBe('project content');
@@ -364,6 +377,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map(),
       claudeVersion: '2.1.133',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(bundle.global.settings).toBeDefined();
     expect(bundle.global.memories).toHaveLength(1);
@@ -387,6 +401,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map(),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(empty.global.customCommands).toBeUndefined();
     expect(empty.global.teams).toBeUndefined();
@@ -400,6 +415,7 @@ describe('buildBundle', () => {
       projectOriginalPaths: new Map(),
       claudeVersion: '2',
       credentialsContent: undefined,
+      sourceHomedir: '/home/u',
     });
     expect(full.global.customCommands).toHaveLength(1);
     expect(full.global.teams).toEqual({ t: {} });

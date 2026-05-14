@@ -143,9 +143,10 @@ describe('parseBundle', () => {
 
     it('skips the integrity check when integrity field is absent', () => {
       const bundleNoIntegrity = {
-        version: '1.0.0',
+        version: '1.1.0',
         exportedAt: '2026-05-09T12:00:00.000Z',
         sourcePlatform: 'linux',
+        sourceHomedir: '/home/user',
         claudeVersion: '2.1.133',
         hasCredentials: false,
         projects: [],
@@ -160,15 +161,41 @@ describe('parseBundle', () => {
   });
 
   describe('format-version handshake (AC 4)', () => {
-    it('warns when bundle.version differs from BUNDLE_FORMAT_VERSION but does not throw', () => {
+    it('throws BUNDLE_INVALID_SCHEMA for a pre-1.1.0 bundle missing sourceHomedir', () => {
+      // older-bundle-version.cmemmov is version 0.9.0 and lacks sourceHomedir.
+      // Since sourceHomedir became required in 1.1.0, Zod rejects pre-1.1.0 bundles.
       const bytes = readFixture('older-bundle-version.cmemmov');
+      try {
+        parseBundle(bytes);
+        expect.fail('expected parseBundle to throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(CmemmovError);
+        const cmErr = err as CmemmovError;
+        expect(cmErr.code).toBe('BUNDLE_INVALID_SCHEMA');
+      }
+    });
+
+    it('warns when bundle.version differs from BUNDLE_FORMAT_VERSION (schema-valid future bundle)', () => {
+      // A bundle with a newer version but valid 1.1.0+ schema (has sourceHomedir):
+      // parseBundle should warn but not throw.
+      const futureBundle = {
+        version: '2.0.0',
+        exportedAt: '2026-05-09T12:00:00.000Z',
+        sourcePlatform: 'linux',
+        sourceHomedir: '/home/user',
+        claudeVersion: '2.1.133',
+        hasCredentials: false,
+        projects: [],
+        global: {},
+      };
+      const bytes = Buffer.from(JSON.stringify(futureBundle), 'utf8');
       const warn = vi.fn();
       const bundle = parseBundle(bytes, { warn });
-      expect(bundle.version).toBe('0.9.0');
+      expect(bundle.version).toBe('2.0.0');
       expect(warn).toHaveBeenCalledTimes(1);
       const msg = warn.mock.calls[0]?.[0] as string;
-      expect(msg).toMatch(/0\.9\.0/);
-      expect(msg).toMatch(/1\.0\.0/);
+      expect(msg).toMatch(/2\.0\.0/);
+      expect(msg).toMatch(/1\.1\.0/);
     });
 
     it('does not warn when bundle.version matches BUNDLE_FORMAT_VERSION', () => {
@@ -181,7 +208,19 @@ describe('parseBundle', () => {
 
   describe('default warn callback', () => {
     it('uses a no-op warn when none is provided (does not throw on version mismatch)', () => {
-      const bytes = readFixture('older-bundle-version.cmemmov');
+      // A schema-valid bundle with a different version; no warn callback provided.
+      // Should not throw even though version differs.
+      const futureBundle = {
+        version: '2.0.0',
+        exportedAt: '2026-05-09T12:00:00.000Z',
+        sourcePlatform: 'linux',
+        sourceHomedir: '/home/user',
+        claudeVersion: '2.1.133',
+        hasCredentials: false,
+        projects: [],
+        global: {},
+      };
+      const bytes = Buffer.from(JSON.stringify(futureBundle), 'utf8');
       expect(() => parseBundle(bytes)).not.toThrow();
     });
 

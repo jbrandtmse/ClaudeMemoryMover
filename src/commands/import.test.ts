@@ -187,9 +187,10 @@ const HOST_PLATFORM = process.platform as 'win32' | 'darwin' | 'linux';
 
 function makeBundle(overrides: Partial<Bundle> = {}): Bundle {
   return {
-    version: '1.0.0',
+    version: '1.1.0',
     exportedAt: '2026-05-09T10:00:00.000Z',
     sourcePlatform: HOST_PLATFORM,
+    sourceHomedir: '/home/user',
     claudeVersion: 'unknown',
     hasCredentials: false,
     projects: [],
@@ -480,7 +481,7 @@ describe('AC7: --dry-run uses dry-run gate, no backup, no fs writes', () => {
 describe('AC8: bundle version mismatch warns but does not block', () => {
   it('warn callback emits version mismatch warning; import completes', async () => {
     state.bundle = makeBundle();
-    state.parseShouldWarn = "Bundle format version '0.9.0' differs from expected '1.0.0'.";
+    state.parseShouldWarn = "Bundle format version '0.9.0' differs from expected '1.1.0'.";
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     await run('/tmp/bundle.cmemmov', {});

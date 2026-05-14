@@ -18,6 +18,10 @@ export default defineConfig({
         'src/services/bundle-parser.ts': {
           lines: 100,
         },
+        'src/core/sanitization-rules.ts': {
+          lines: 100,
+          branches: 100,
+        },
       },
     },
   },

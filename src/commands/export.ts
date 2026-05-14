@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises';
-import { locateClaude } from '../services/claude-locator.js';
+import { locateClaude, getSourceHomedir } from '../services/claude-locator.js';
 import {
   readClaudeSurface,
   readClaudeJsonFile,
@@ -263,6 +263,7 @@ export async function run(opts: ExportOpts = {}): Promise<void> {
     projectOriginalPaths,
     claudeVersion,
     credentialsContent,
+    sourceHomedir: getSourceHomedir(),
   });
 
   if (!includeCredentials) {
